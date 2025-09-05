@@ -2,7 +2,7 @@ use std::fs;
 use std::io::Read;
 
 mod cpu;
-mod memoty;
+mod memory;
 
 fn main (){
     let mut file = fs::File::open("teste.teste").expect("Erro ao abrir o arquivo");
