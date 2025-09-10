@@ -91,22 +91,30 @@ impl Memory{
                 match offset {
                     0x0000..=0x1FFF => self.wram[offset as usize],
                     0x2100..=0x21FF => self.read_ppu_registers(offset),
-                    0x4000..=0x41FF => self.read_apu_registers(offset),
-                    0x4200..=0x44FF => self.read_dma_registers(offset),
+                    0x4000..=0x401F => self.read_apu_registers(offset),
                     0x4016..=0x4017 => self.registers.get(&offset).copied().unwrap_or(0), // Input
+                    0x4020..=0x41FF => self.read_apu_registers(offset),
+                    0x4200..=0x44FF => self.read_dma_registers(offset),
                     0x6000..=0x7FFF => { // SRAM Area para LoRom
                         if self.sram_size > 0 {
                             let sram_addr = (offset - 0x6000) as usize;
-                            self.sram.get(sram_addr).copied().unwrap_or(0)
-
+                            if sram_addr < self.sram.len(){
+                                self.sram[sram_addr]
+                            } else {
+                                0
+                            }
                         } else {
                             0
                         }
                     }
                     //LoRom Area
                     0x8000..=0xFFFF => {
-                        let rom_addr = ((bank as usize) << 15) | ((offset - 0x8000) as usize);
-                        self.rom.get(rom_addr).copied().unwrap_or(0)
+                        let rom_addr = ((bank as usize) * 0x8000) + ((offset - 0x8000) as usize);
+                        if rom_addr < self.rom.len() {
+                            self.rom[rom_addr]
+                        } else {
+                            0
+                        }
                     }
                     _ => 0, // Areas não mapeadas
                 }
@@ -114,8 +122,12 @@ impl Memory{
 
             0x40..=0x6F => {
                 if offset >= 0x8000 {
-                    let rom_addr = ((bank as usize) << 15) | ((offset - 0x8000) as usize);
-                    self.rom.get(rom_addr).copied().unwrap_or(0)
+                    let rom_addr = ((bank as usize) * 0x8000) + ((offset - 0x8000) as usize);
+                    if rom_addr < self.rom.len(){
+                        self.rom[rom_addr]
+                    } else {
+                        0
+                    }
                 } else {
                     0 // Areas não mapeadas
                 }
@@ -123,18 +135,36 @@ impl Memory{
 
             0x7E => self.wram[offset as usize], // WRAM (primeiros 64KB)
 
-            0x7F => self.wram[(0x10000 + offset) as usize], // WRAM (últimos 64KB)
+            0x7F => self.wram[(0x10000_usize + offset as usize)], // WRAM (últimos 64KB)
 
             0x80..=0xBF => {
                 match offset {
                     0x0000..=0x1FFF => self.wram[offset as usize],
                     0x2100..=0x21FF => self.read_ppu_registers(offset),
-                    0x4000..=0x41FF => self.read_apu_registers(offset),
-                    0x4200..=0x44FF => self.read_dma_registers(offset),
+                    0x4000..=0x401F => self.read_apu_registers(offset),
                     0x4016..=0x4017 => self.registers.get(&offset).copied().unwrap_or(0), // Input
+                    0x4020..=0x41FF => self.read_apu_registers(offset),
+                    0x4200..=0x44FF => self.read_dma_registers(offset),
+                    0x6000..=0x7FFF => { // SRAM Area para LoRom
+                        if self.sram_size > 0 {
+                            let sram_addr = (offset - 0x6000) as usize;
+                            if sram_addr < self.sram.len(){
+                                self.sram[sram_addr]
+                            } else {
+                                0
+                            }
+                        } else {
+                            0
+                        }
+                    }
                     0x8000..=0xFFFF => {
-                        let rom_addr = (((bank - 0x80) as usize) << 15) | ((offset - 0x8000) as usize);
-                        self.rom.get(rom_addr).copied().unwrap_or(0)
+                        let mapped_bank = bank - 0x80;
+                        let rom_addr = ((mapped_bank as usize) * 0x8000) + ((offset - 0x8000) as usize);
+                        if rom_addr < self.rom.len() {
+                            self.rom[rom_addr]
+                        } else {
+                            0
+                        }
                     }
                     _ => 0, // Areas não mapeadas
                 }
@@ -145,7 +175,11 @@ impl Memory{
                 match self.rom_type {
                     RomType::HiRom => {
                         let rom_addr = (((bank - 0xC0) as usize) << 16) | (offset as usize);
-                        self.rom.get(rom_addr).copied().unwrap_or(0)
+                        if rom_addr < self.rom.len() {
+                            self.rom[rom_addr]
+                        } else {
+                            0
+                        }
                     }
                     RomType::LoRom => {
                         //unmapped area
@@ -169,9 +203,10 @@ impl Memory{
                     0x0000..=0x1FFF => self.wram[offset as usize] = value,
                     // Hardware Registers
                     0x2100..=0x21FF => self.write_ppu_registers(offset, value),
-                    0x4000..=0x41FF => self.write_apu_registers(offset, value),
+                    0x4000..=0x401F => self.write_apu_registers(offset, value),
+                    0x4016..=0x4017 => { self.registers.insert(offset, value); }, // Input
+                    0x4020..=0x41FF => self.write_apu_registers(offset, value),
                     0x4200..=0x44FF => self.write_dma_registers(offset, value),
-                    0x4016..=0x4017 => { self.registers.insert(offset, value); },
                     0x6000..=0x7FFF => { // SRAM write
                         if self.sram_size > 0 {
                             let sram_addr = (offset - 0x6000) as usize;
@@ -186,15 +221,24 @@ impl Memory{
             }
 
             0x7E => self.wram[offset as usize] = value, // WRAM (first 64KB)
-            0x7F => self.wram[(0x10000 + offset) as usize] = value, // WRAM (last 64KB)
+            0x7F => self.wram[(0x10000_usize + offset as usize)] = value, // WRAM (last 64KB)
 
             0x80..=0xBF => {
                 match offset {
                     0x0000..=0x1FFF => self.wram[offset as usize] = value,
                     0x2100..=0x21FF => self.write_ppu_registers(offset, value),
-                    0x4000..=0x41FF => self.write_apu_registers(offset, value),
-                    0x4200..=0x44FF => self.write_dma_registers(offset, value),
+                    0x4000..=0x401F => self.write_apu_registers(offset, value),
                     0x4016..=0x4017 => { self.registers.insert(offset, value); }, // Input
+                    0x4020..=0x41FF => self.write_apu_registers(offset, value),
+                    0x4200..=0x44FF => self.write_dma_registers(offset, value), // Input
+                    0x6000..=0x7FFF => { // SRAM write
+                        if self.sram_size > 0 {
+                            let sram_addr = (offset - 0x6000) as usize;
+                            if sram_addr < self.sram.len() {
+                                self.sram[sram_addr] = value;
+                            }
+                        }
+                    }
                     0x8000..=0xFFFF => {} // Rom area (read-only)
                     _ => {} // Unmapped area
                 }
@@ -247,8 +291,8 @@ impl Memory{
             }
             
             // OAM access
-            0x2102 => self.registers.insert(addr, value), // OAM address low
-            0x2103 => self.registers.insert(addr, value), // OAM address high
+            0x2102 => { self.registers.insert(addr, value); }, // OAM address low
+            0x2103 => { self.registers.insert(addr, value); }, // OAM address high
             0x2104 => { // OAM data write
                 let addr_low = self.registers.get(&0x2102).copied().unwrap_or(0);
                 let addr_high = self.registers.get(&0x2103).copied().unwrap_or(0);
@@ -259,7 +303,7 @@ impl Memory{
             }
             
             // CGRAM access
-            0x2121 => self.registers.insert(addr, value), // CGRAM address
+            0x2121 => { self.registers.insert(addr, value); }, // CGRAM address
             0x2122 => { // CGRAM data write
                 let cgram_addr = self.registers.get(&0x2121).copied().unwrap_or(0);
                 if (cgram_addr as usize) < self.cgram.len() {
@@ -369,7 +413,7 @@ mod tests {
         let header_start = 0x7FC0;
         
         // Nome do jogo
-        let title = b"TEST ROM            ";
+        let title = b"TEST ROM             ";
         rom[header_start..header_start + 21].copy_from_slice(title);
         
         // Checksum válido (simplificado)
