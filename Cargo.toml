@@ -3,6 +3,14 @@ name = "snes-emulator"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "snes_emulator"
+path = "src/lib.rs"
+
+[[bin]]
+name = "snes-emulator"
+path = "src/main.rs"
+
 [dependencies]
 byteorder = "1.4"
 bitflags = "2.0"
