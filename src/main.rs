@@ -31,18 +31,18 @@ fn main (){
 fn create_test_rom() -> Vec<u8> {
     let mut rom = vec![0xEA; 0x10000]; // NOPs
     
-    // Programa de teste mais interessante
-    rom[0x8000] = 0x18;       // CLC
-    rom[0x8001] = 0xA9; rom[0x8002] = 0x42; // LDA #$42
-    rom[0x8003] = 0x8D; rom[0x8004] = 0x00; rom[0x8005] = 0x30; // STA $3000
-    rom[0x8006] = 0xA2; rom[0x8007] = 0x10; // LDX #$10
-    rom[0x8008] = 0xA0; rom[0x8009] = 0x20; // LDY #$20
-    rom[0x800A] = 0x38;       // SEC
-    rom[0x800B] = 0x4C; rom[0x800C] = 0x00; rom[0x800D] = 0x80; // JMP $8000
+    // Programa de teste mais interessante - Corrigido para rom[0x0000] (mapeia para $00:8000)
+    rom[0x0000] = 0x18;       // CLC
+    rom[0x0001] = 0xA9; rom[0x0002] = 0x42; // LDA #$42
+    rom[0x0003] = 0x8D; rom[0x0004] = 0x00; rom[0x0005] = 0x30; // STA $3000
+    rom[0x0006] = 0xA2; rom[0x0007] = 0x10; // LDX #$10
+    rom[0x0008] = 0xA0; rom[0x0009] = 0x20; // LDY #$20
+    rom[0x000A] = 0x38;       // SEC
+    rom[0x000B] = 0x4C; rom[0x000C] = 0x00; rom[0x000D] = 0x80; // JMP $8000
     
     // Header...
     let header_start = 0x7FC0;
-    let title = b"SNES EMU TEST       ";
+    let title = b"SNES EMU TEST        ";
     rom[header_start..header_start + 21].copy_from_slice(title);
     
     rom[header_start + 0x1C] = 0x34;

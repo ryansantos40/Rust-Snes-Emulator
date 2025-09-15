@@ -91,6 +91,7 @@ impl Memory{
                 match offset {
                     0x0000..=0x1FFF => self.wram[offset as usize],
                     0x2100..=0x21FF => self.read_ppu_registers(offset),
+                    0x2000..=0x5FFF => self.wram[offset as usize],
                     0x4000..=0x4015 => self.read_apu_registers(offset),
                     0x4016..=0x4017 => self.registers.get(&offset).copied().unwrap_or(0), // Input
                     0x4018..=0x401F => self.read_apu_registers(offset),
@@ -142,6 +143,7 @@ impl Memory{
                 match offset {
                     0x0000..=0x1FFF => self.wram[offset as usize],
                     0x2100..=0x21FF => self.read_ppu_registers(offset),
+                    0x2000..=0x5FFF => self.wram[offset as usize],
                     0x4000..=0x4015 => self.read_apu_registers(offset),
                     0x4016..=0x4017 => self.registers.get(&offset).copied().unwrap_or(0), // Input
                     0x4018..=0x401F => self.read_apu_registers(offset),
@@ -203,8 +205,8 @@ impl Memory{
                 match offset {
                     //WRAM mirror
                     0x0000..=0x1FFF => self.wram[offset as usize] = value,
-                    // Hardware Registers
                     0x2100..=0x21FF => self.write_ppu_registers(offset, value),
+                    0x2000..=0x5FFF => self.wram[offset as usize] = value,
                     0x4000..=0x4015 => self.write_apu_registers(offset, value),
                     0x4016..=0x4017 => { self.registers.insert(offset, value); }, // Input
                     0x4018..=0x401F => self.write_apu_registers(offset, value),
@@ -230,6 +232,7 @@ impl Memory{
                 match offset {
                     0x0000..=0x1FFF => self.wram[offset as usize] = value,
                     0x2100..=0x21FF => self.write_ppu_registers(offset, value),
+                    0x2000..=0x5FFF => self.wram[offset as usize] = value,
                     0x4000..=0x4015 => self.write_apu_registers(offset, value),
                     0x4016..=0x4017 => { self.registers.insert(offset, value); }, // Input
                     0x4018..=0x401F => self.write_apu_registers(offset, value),
