@@ -91,8 +91,9 @@ impl Memory{
                 match offset {
                     0x0000..=0x1FFF => self.wram[offset as usize],
                     0x2100..=0x21FF => self.read_ppu_registers(offset),
-                    0x4000..=0x401F => self.read_apu_registers(offset),
+                    0x4000..=0x4015 => self.read_apu_registers(offset),
                     0x4016..=0x4017 => self.registers.get(&offset).copied().unwrap_or(0), // Input
+                    0x4018..=0x401F => self.read_apu_registers(offset),
                     0x4020..=0x41FF => self.read_apu_registers(offset),
                     0x4200..=0x44FF => self.read_dma_registers(offset),
                     0x6000..=0x7FFF => { // SRAM Area para LoRom
@@ -135,14 +136,15 @@ impl Memory{
 
             0x7E => self.wram[offset as usize], // WRAM (primeiros 64KB)
 
-            0x7F => self.wram[(0x10000_usize + offset as usize)], // WRAM (últimos 64KB)
+            0x7F => self.wram[0x10000_usize + offset as usize], // WRAM (últimos 64KB)
 
             0x80..=0xBF => {
                 match offset {
                     0x0000..=0x1FFF => self.wram[offset as usize],
                     0x2100..=0x21FF => self.read_ppu_registers(offset),
-                    0x4000..=0x401F => self.read_apu_registers(offset),
+                    0x4000..=0x4015 => self.read_apu_registers(offset),
                     0x4016..=0x4017 => self.registers.get(&offset).copied().unwrap_or(0), // Input
+                    0x4018..=0x401F => self.read_apu_registers(offset),
                     0x4020..=0x41FF => self.read_apu_registers(offset),
                     0x4200..=0x44FF => self.read_dma_registers(offset),
                     0x6000..=0x7FFF => { // SRAM Area para LoRom
@@ -203,8 +205,9 @@ impl Memory{
                     0x0000..=0x1FFF => self.wram[offset as usize] = value,
                     // Hardware Registers
                     0x2100..=0x21FF => self.write_ppu_registers(offset, value),
-                    0x4000..=0x401F => self.write_apu_registers(offset, value),
+                    0x4000..=0x4015 => self.write_apu_registers(offset, value),
                     0x4016..=0x4017 => { self.registers.insert(offset, value); }, // Input
+                    0x4018..=0x401F => self.write_apu_registers(offset, value),
                     0x4020..=0x41FF => self.write_apu_registers(offset, value),
                     0x4200..=0x44FF => self.write_dma_registers(offset, value),
                     0x6000..=0x7FFF => { // SRAM write
@@ -221,16 +224,17 @@ impl Memory{
             }
 
             0x7E => self.wram[offset as usize] = value, // WRAM (first 64KB)
-            0x7F => self.wram[(0x10000_usize + offset as usize)] = value, // WRAM (last 64KB)
+            0x7F => self.wram[0x10000_usize + offset as usize] = value, // WRAM (last 64KB)
 
             0x80..=0xBF => {
                 match offset {
                     0x0000..=0x1FFF => self.wram[offset as usize] = value,
                     0x2100..=0x21FF => self.write_ppu_registers(offset, value),
-                    0x4000..=0x401F => self.write_apu_registers(offset, value),
+                    0x4000..=0x4015 => self.write_apu_registers(offset, value),
                     0x4016..=0x4017 => { self.registers.insert(offset, value); }, // Input
+                    0x4018..=0x401F => self.write_apu_registers(offset, value),
                     0x4020..=0x41FF => self.write_apu_registers(offset, value),
-                    0x4200..=0x44FF => self.write_dma_registers(offset, value), // Input
+                    0x4200..=0x44FF => self.write_dma_registers(offset, value),
                     0x6000..=0x7FFF => { // SRAM write
                         if self.sram_size > 0 {
                             let sram_addr = (offset - 0x6000) as usize;
