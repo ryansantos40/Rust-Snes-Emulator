@@ -1,4 +1,5 @@
 use crate::memory::Memory;
+use crate::opcodes::{get_opcode_info, Operation, AddressingMode, FLAG_CARRY, FLAG_ZERO, FLAG_IRQ, FLAG_DECIMAL, FLAG_OVERFLOW, FLAG_NEGATIVE};
 
 pub struct Cpu {
 
@@ -25,17 +26,13 @@ pub struct Cpu {
 
 #[allow(dead_code)]
 impl Cpu {
-   pub const FLAG_CARRY: u8 = 0x01;
-   pub const FLAG_ZERO: u8 = 0x02;
-   pub const FLAG_IRQ: u8 = 0x04;
-   pub const FLAG_DECIMAL: u8 = 0x08;
-   pub const FLAG_INDEX: u8 = 0x10;
-   pub const FLAG_MEMORY: u8 = 0x20;
-   pub const FLAG_OVERFLOW: u8 = 0x40;
-   pub const FLAG_NEGATIVE: u8 = 0x80;
-}
+    pub const FLAG_CARRY: u8 = FLAG_CARRY;
+    pub const FLAG_ZERO: u8 = FLAG_ZERO;
+    pub const FLAG_IRQ: u8 = FLAG_IRQ;
+    pub const FLAG_DECIMAL: u8 = FLAG_DECIMAL;
+    pub const FLAG_OVERFLOW: u8 = FLAG_OVERFLOW;
+    pub const FLAG_NEGATIVE: u8 = FLAG_NEGATIVE;
 
-impl Cpu {
     pub fn new() -> Self {
         Cpu {
             a: 0x0000,
@@ -80,375 +77,196 @@ impl Cpu {
     }
 
     fn execute_instruction(&mut self, opcode: u8, memory: &mut Memory) -> u8 {
-        match opcode {
-            // NOP - No Operation
-            0xEA => 2,
+        match get_opcode_info(opcode){
+            Some(info) => {
+                self.execute_operation(info.operation, info.mode, memory);
+                self.adjust_cycles(info.cycles, info.mode)
+            }
 
-            //LDA - Load Accumulator
-            0xA9 => self.lda_immediate(memory),
-            0xA5 => self.lda_direct_page(memory),
-            0xAD => self.lda_absolute(memory),
-
-            // lDX - Load X Register
-            0xA2 => self.ldx_immediate(memory),
-            0xA6 => self.ldx_direct_page(memory),
-            0xAE => self.ldx_absolute(memory),
-
-            // LDY - Load Y Register
-            0xA0 => self.ldy_immediate(memory),
-            0xA4 => self.ldy_direct_page(memory),
-            0xAC => self.ldy_absolute(memory),
-
-            // STA - Store Accumulator
-            0x85 => self.sta_direct_page(memory),
-            0x8D => self.sta_absolute(memory),
-
-            // STX - Store X Register
-            0x86 => self.stx_direct_page(memory),
-            0x8E => self.stx_absolute(memory),
-
-            // STY - Store Y Register
-            0x84 => self.sty_direct_page(memory),
-            0x8C => self.sty_absolute(memory),
-
-            // Flags Operations
-            0x18 => { self.clear_flag(Self::FLAG_CARRY); 2 },
-            0x38 => { self.set_flag(Self::FLAG_CARRY); 2 },
-            0x58 => { self.clear_flag(Self::FLAG_IRQ); 2 },
-            0x78 => { self.set_flag(Self::FLAG_IRQ); 2 },
-            0xB8 => { self.clear_flag(Self::FLAG_OVERFLOW); 2 },
-            0xD8 => { self.clear_flag(Self::FLAG_DECIMAL); 2 },
-            0xF8 => { self.set_flag(Self::FLAG_DECIMAL); 2 },
-
-            // Jumps
-            0x4C => self.jmp_absolute(memory),
-            0x6C => self.jmp_indirect(memory),
-
-            // Branch Instructions
-            0x10 => self.branch(!self.get_flag(Self::FLAG_NEGATIVE), memory), // BPL
-            0x30 => self.branch(self.get_flag(Self::FLAG_NEGATIVE), memory),  // BMI
-            0x50 => self.branch(!self.get_flag(Self::FLAG_OVERFLOW), memory), // BVC
-            0x70 => self.branch(self.get_flag(Self::FLAG_OVERFLOW), memory),  // BVS
-            0x90 => self.branch(!self.get_flag(Self::FLAG_CARRY), memory),    // BCC
-            0xB0 => self.branch(self.get_flag(Self::FLAG_CARRY), memory),     // BCS
-            0xD0 => self.branch(!self.get_flag(Self::FLAG_ZERO), memory),     // BNE
-            0xF0 => self.branch(self.get_flag(Self::FLAG_ZERO), memory),      // BEQ
-
-            _ => {
-                println!("Opcode não implementado: {:02X} em PC: {:06X}", opcode, self.pc - 1);
+            None => {
+                println!("Unknown opcode: {:02X} at PC: {:06X}", opcode, self.pc - 1);
                 2
             }
         }
     }
 
-    // ++++ Load Instructions ++++
-
-    fn lda_immediate(&mut self, memory: &mut Memory) -> u8 {
-        if self.m_flag {
-            let value = memory.read(self.pc) as u16;
-            self.pc += 1;
-            self.a = (self.a & 0xFF00) | value;
-            self.update_nz_flags_a();
-            2
-
-        } else {
-            let low = memory.read(self.pc) as u16;
-            let high = memory.read(self.pc + 1) as u16;
-            self.pc += 2;
-            self.a = (high << 8) | low;
-            self.update_nz_flags_a();
-            3
-        }
-    }
-
-    fn lda_direct_page(&mut self, memory: &mut Memory) -> u8 {
-        let addr = self.dp + memory.read(self.pc) as u16;
-        self.pc += 1;
-
-        if self.m_flag {
-            self.a = (self.a & 0xFF00) | memory.read(addr as u32) as u16;
-
-        } else {
-            let low = memory.read(addr as u32) as u16;
-            let high = memory.read((addr + 1) as u32) as u16;
-            self.a = (high << 8) | low;
-        }
-        self.update_nz_flags_a();
-        if self.m_flag { 3 } else { 4 }
-    }
-
-    fn lda_absolute(&mut self, memory : &mut Memory) -> u8 {
-        let addr_low = memory.read(self.pc) as u32;
-        let addr_high = memory.read(self.pc + 1) as u32;
-        let addr = (addr_high << 8) | addr_low;
-        self.pc += 2;
-
-        if self.m_flag {
-            self.a = (self.a & 0xFF00) | memory.read(addr) as u16;
-
-        } else {
-            let low = memory.read(addr) as u16;
-            let high = memory.read(addr + 1) as u16;
-            self.a = (high << 8) | low;
-        }
-
-        self.update_nz_flags_a();
-        if self.m_flag { 4 } else { 5 }
-
-    }
-
-    fn ldx_immediate(&mut self, memory: &mut Memory) -> u8 {
-        if self.x_flag {
-            self.x = (self.x & 0xFF00) | memory.read(self.pc) as u16;
-            self.pc += 1;
-            self.update_nz_flags_x();
-            2
-
-        } else {
-            let low = memory.read(self.pc) as u16;
-            let high = memory.read(self.pc + 1) as u16;
-            self.pc += 2;
-            self.x = (high << 8) | low;
-            self.update_nz_flags_x();
-            3
-        }
-    }
-
-    fn ldx_direct_page(&mut self, memory: &mut Memory) -> u8 {
-        let addr = self.dp + memory.read(self.pc) as u16;
-        self.pc += 1;
-
-        if self.x_flag {
-            self.x = (self.x & 0xFF00) | memory.read(addr as u32) as u16;
-
-        } else {
-            let low = memory.read(addr as u32) as u16;
-            let high = memory.read((addr + 1) as u32) as u16;
-            self.x = (high << 8) | low;
-
-        }
-
-        self.update_nz_flags_x();
-        if self.x_flag { 3 } else { 4 }
-    }
-
-    fn ldx_absolute(&mut self, memory: &mut Memory) -> u8 {
-        let addr_low = memory.read(self.pc) as u32;
-        let addr_high = memory.read(self.pc + 1) as u32;
-        let addr = (addr_high << 8) | addr_low;
-        self.pc += 2;
-
-        if self.x_flag {
-            self.x = (self.x & 0xFF00) | memory.read(addr) as u16;
-
-        } else {
-            let low = memory.read(addr) as u16;
-            let high = memory.read(addr + 1) as u16;
-            self.x = (high << 8) | low;
-
-        }
-
-        self.update_nz_flags_x();
-        if self.x_flag { 4 } else { 5 }
-
-    }
-
-    fn ldy_immediate(&mut self, memory: &mut Memory) -> u8 {
-        if self.x_flag {
-            self.y = (self.y & 0xFF00) | memory.read(self.pc) as u16;
-            self.pc += 1;
-            self.update_nz_flags_y();
-            2
-
-        } else {
-            let low = memory.read(self.pc) as u16;
-            let high = memory.read(self.pc + 1) as u16;
-            self.pc += 2;
-            self.y = (high << 8) | low;
-            self.update_nz_flags_y();
-            3
-        }
-    }
-
-    fn ldy_direct_page(&mut self, memory: &mut Memory) -> u8 {
-        let addr = self.dp + memory.read(self.pc) as u16;
-        self.pc += 1;
-
-        if self.x_flag {
-            self.y = (self.y & 0xFF00) | memory.read(addr as u32) as u16;
-
-        } else {
-            let low = memory.read(addr as u32) as u16;
-            let high = memory.read((addr + 1) as u32) as u16;
-            self.y = (high << 8) | low;
-
-        }
-
-        self.update_nz_flags_y();
-        if self.x_flag { 3 } else { 4 }
-    }
-
-    fn ldy_absolute(&mut self, memory: &mut Memory) -> u8 {
-        let addr_low = memory.read(self.pc) as u32;
-        let addr_high = memory.read(self.pc + 1) as u32;
-        let addr = (addr_high << 8) | addr_low;
-        self.pc += 2;
-
-        if self.x_flag {
-            self.y = (self.y & 0xFF00) | memory.read(addr) as u16;
-
-        } else {
-            let low = memory.read(addr) as u16;
-            let high = memory.read(addr + 1) as u16;
-            self.y = (high << 8) | low;
-        }
-
-        self.update_nz_flags_y();
-        if self.x_flag { 4 } else { 5 }
-    }
-
-    // ++++ Store Instructions ++++
-
-    fn sta_direct_page(&mut self, memory: &mut Memory) -> u8 {
-        let addr = self.dp + memory.read(self.pc) as u16;
-        self.pc += 1;
-
-        if self.m_flag{
-            memory.write(addr as u32, self.a as u8);
-
-        } else {
-            memory.write(addr as u32, self.a as u8);
-            memory.write((addr + 1) as u32, (self.a >> 8) as u8);
-
-        }
-
-        if self.m_flag { 3 } else { 4 }
-    }
-
-    fn sta_absolute(&mut self, memory: &mut Memory) -> u8 {
-        let addr_low = memory.read(self.pc) as u32;
-        let addr_high = memory.read(self.pc + 1) as u32;
-        let addr = (addr_high << 8) | addr_low;
-        self.pc += 2;
-
-        if self.m_flag{
-            memory.write(addr, self.a as u8);
-
-        } else {
-            memory.write(addr, self.a as u8);
-            memory.write(addr + 1, (self.a >> 8) as u8);
-
-        }
-
-        if self.m_flag { 4 } else { 5 }
-    }
-
-    fn stx_direct_page(&mut self, memory: &mut Memory) -> u8 {
-        let addr = self.dp + memory.read(self.pc) as u16;
-        self.pc += 1;
-
-        if self.x_flag {
-            memory.write(addr as u32, self.x as u8);
-
-        } else {
-            memory.write(addr as u32, self.x as u8);
-            memory.write((addr + 1) as u32, (self.x >> 8) as u8);
-
-        }
-
-        if self.x_flag { 3 } else { 4 }
-    }
-
-    fn stx_absolute(&mut self, memory: &mut Memory) -> u8 {
-        let addr_low = memory.read(self.pc) as u32;
-        let addr_high = memory.read(self.pc + 1) as u32;
-        let addr = (addr_high << 8) | addr_low;
-        self.pc += 2;
-
-        if self.x_flag {
-            memory.write(addr, self.x as u8);
-
-        } else {
-            memory.write(addr, self.x as u8);
-            memory.write(addr + 1, (self.x >> 8) as u8);
-
-        }
-
-        if self.x_flag { 4 } else { 5 }
-
-    }
-
-    fn sty_direct_page(&mut self, memory: &mut Memory) -> u8 {
-        let addr = self.dp + memory.read(self.pc) as u16;
-        self.pc += 1;
-
-        if self.x_flag {
-            memory.write(addr as u32, self.y as u8);
-
-        } else {
-            memory.write(addr as u32, self.y as u8);
-            memory.write((addr + 1) as u32, (self.y >> 8) as u8);
-        }
-
-        if self.x_flag { 3 } else { 4 }
-    }
-
-    fn sty_absolute(&mut self, memory: &mut Memory) -> u8{
-        let addr_low = memory.read(self.pc) as u32;
-        let addr_high = memory.read(self.pc + 1) as u32;
-        let addr = (addr_high << 8) | addr_low;
-        self.pc += 2;
-
-        if self.x_flag {
-            memory.write(addr, self.y as u8);
-
-        } else {
-            memory.write(addr, self.y as u8);
-            memory.write(addr + 1, (self.y >> 8) as u8);
-        }
-
-        if self.x_flag { 4 } else { 5 }
-    }
-
-    // ++++ Jump Instructions ++++
-
-    fn jmp_absolute(&mut self, memory: &mut Memory) -> u8 {
-        let addr_low = memory.read(self.pc) as u32;
-        let addr_high = memory.read(self.pc + 1) as u32;
-        self.pc = (addr_high << 8) | addr_low;
-        3
-    }
-
-    fn jmp_indirect(&mut self, memory: &mut Memory) -> u8 {
-        let ptr_low = memory.read(self.pc) as u32;
-        let ptr_high = memory.read(self.pc + 1) as u32;
-        let ptr = (ptr_high << 8) | ptr_low;
-
-        let addr_low = memory.read(ptr) as u32;
-        let addr_high = memory.read(ptr + 1) as u32;
-        self.pc = (addr_high << 8) | addr_low;
-        5
-    }
-
-    // ++++ Branch Instructions ++++
-
-    fn branch(&mut self, condition: bool, memory: &mut Memory) -> u8 {
-        let offset = memory.read(self.pc) as i8;
-        self.pc += 1;
-
-        if condition {
-            let old_pc = self.pc;
-            self.pc = ((self.pc as i32) + (offset as i32)) as u32;
-
-            if (old_pc & 0xFF00) != (self.pc & 0xFF00) {
-                4 // Branch crossed a page boundary
-
-            } else {
-                3 // Normal branch
+    fn execute_operation(&mut self, op: Operation, mode: AddressingMode, memory: &mut Memory) {
+        match op {
+            Operation::LoadA => {
+                let value = self.read_operand(mode, memory, false);
+                self.a = if self.m_flag { (self.a & 0xFF00) | value} else { value };
+                self.update_nz_flags_a();
             }
-            
-        } else {
-            2   // No branch taken
+
+            Operation::LoadX => {
+                let value = self.read_operand(mode, memory, false);
+                self.x = if self.x_flag { (self.x & 0xFF00) | value} else { value };
+                self.update_nz_flags_x();
+            }
+
+            Operation::LoadY => {
+                let value = self.read_operand(mode, memory, false);
+                self.y = if self.x_flag { (self.y & 0xFF00) | value} else { value };
+                self.update_nz_flags_y();
+            }
+
+            Operation::StoreA => {
+                let value = if self.m_flag { self.a & 0xFF } else { self.a };
+                self.write_operand(mode, memory, value, false);
+            }
+
+            Operation::StoreX => {
+                let value = if self.x_flag { self.x & 0xFF } else { self.x };
+                self.write_operand(mode, memory, value, true);
+            }
+
+            Operation::StoreY => {
+                let value = if self.x_flag { self.y & 0xFF } else { self.y };
+                self.write_operand(mode, memory, value, true);
+            }
+
+            Operation::SetFlag(flag) => self.set_flag(flag),
+            Operation::ClearFlag(flag) => self.clear_flag(flag),
+
+            Operation::Jump => {
+                let addr = self.read_address(mode, memory);
+                self.pc = addr;
+            }
+
+            Operation::JumpIndirect => {
+                let ptr = self.read_address(AddressingMode::Absolute, memory);
+                let addr_low = memory.read(ptr) as u32;
+                let addr_high = memory.read(ptr + 1) as u32;
+                self.pc = (addr_high << 8) | addr_low;
+            }
+
+            Operation::Branch { flag, condition} => {
+                let flag_set = self.get_flag(flag);
+                let should_branch = flag_set == condition;
+
+                let offset = memory.read(self.pc) as i8;
+                self.pc += 1;
+
+                if should_branch {
+                    self.pc = ((self.pc as i32) + (offset as i32)) as u32;
+                }
+            }
+
+            Operation::Nop => { /* Do nothing */}
+
+            _ => {
+                println!("Unimplemented operation: {:?} in mode: {:?}", op, mode);
+            }
+        }
+    }
+
+    fn read_operand(&mut self, mode: AddressingMode, memory: &mut Memory, use_x_flag: bool) -> u16 {
+        let is_8bit = if use_x_flag { self.x_flag } else { self.m_flag };
+
+        match mode {
+            AddressingMode::Immediate => {
+                if is_8bit {
+                    let value = memory.read(self.pc) as u16;
+                    self.pc += 1;
+                    value
+                } else {
+                    let low = memory.read(self.pc) as u16;
+                    let high = memory.read(self.pc + 1) as u16;
+                    self.pc += 2;
+                    (high << 8) | low
+                }
+            }
+
+            AddressingMode::DirectPage => {
+                let addr = self.dp + memory.read(self.pc) as u16;
+                self.pc += 1;
+
+                if is_8bit {
+                    memory.read(addr as u32) as u16
+                } else {
+                    let low = memory.read(addr as u32) as u16;
+                    let high = memory.read((addr + 1) as u32) as u16;
+                    (high << 8) | low
+                }
+            }
+
+            AddressingMode::Absolute => {
+                let addr = self.read_address(mode, memory);
+
+                if is_8bit {
+                    memory.read(addr) as u16
+                } else {
+                    let low = memory.read(addr) as u16;
+                    let high = memory.read(addr + 1) as u16;
+                    (high << 8) | low
+                }
+            }
+
+            _ => {
+                println!("Unsupported addressing mode for read_operand: {:?}", mode);
+                0
+            }
+        }
+    }
+
+    fn write_operand(&mut self, mode: AddressingMode, memory: &mut Memory, value: u16, use_x_flag: bool) {
+        let is_8bit = if use_x_flag { self.x_flag } else { self.m_flag };
+
+        match mode {
+            AddressingMode::DirectPage => {
+                let addr = self.dp + memory.read(self.pc) as u16;
+                self.pc += 1;
+
+                memory.write(addr as u32, value as u8);
+
+                if !is_8bit {
+                    memory.write((addr + 1) as u32, (value >> 8) as u8);
+                }
+            }
+
+            AddressingMode::Absolute => {
+                let addr = self.read_address(mode, memory);
+
+                memory.write(addr, value as u8);
+                if !is_8bit {
+                    memory.write(addr + 1, (value >> 8) as u8);
+                }
+            }
+
+            _ => {
+                println!("Unsupported addressing mode for write_operand: {:?}", mode);
+            }
+        }
+    }
+
+    fn read_address(&mut self, mode: AddressingMode, memory: &mut Memory) -> u32 {
+        match mode {
+            AddressingMode::Absolute => {
+                let addr_low = memory.read(self.pc) as u32;
+                let addr_high = memory.read(self.pc + 1) as u32;
+                self.pc += 2;
+                (addr_high << 8) | addr_low
+                
+            }
+
+            _ => {
+                println!("Unsupported addressing mode for read_address: {:?}", mode);
+                0
+            }
+        }
+    }
+
+    fn adjust_cycles(&self, base_cycles: u8, mode: AddressingMode) -> u8 {
+        match mode {
+            AddressingMode:: Immediate => {
+                if !self.m_flag || !self.x_flag {
+                    base_cycles + 1
+                } else {
+                    base_cycles
+                }
+            }
+
+            _ => base_cycles
         }
     }
 

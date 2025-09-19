@@ -3,6 +3,7 @@ use std::io::Read;
 
 mod cpu;
 mod memory;
+mod opcodes;
 
 fn main (){
     println!("Iniciando emulador SNES...");
