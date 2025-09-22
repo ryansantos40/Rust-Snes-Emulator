@@ -239,3 +239,404 @@ fn debug_sta_absolute() {
     
     assert_eq!(memory.read(0x003000), 0xAB);
 }
+
+#[test]
+fn test_adc_immediate() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0x18,       // CLC (clear carry)
+        0xA9, 0x10, // LDA #$10
+        0x69, 0x05, // ADC #$05
+        0x69, 0xFF, // ADC #$FF (should cause carry)
+    ]);
+    
+    cpu.step(&mut memory); // CLC
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), false);
+    
+    cpu.step(&mut memory); // LDA #$10
+    assert_eq!(cpu.a & 0xFF, 0x10);
+    
+    cpu.step(&mut memory); // ADC #$05
+    assert_eq!(cpu.a & 0xFF, 0x15); // 0x10 + 0x05 = 0x15
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), false);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), false);
+    
+    cpu.step(&mut memory); // ADC #$FF
+    assert_eq!(cpu.a & 0xFF, 0x14); // 0x15 + 0xFF = 0x114 (carry set, result 0x14)
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), true);
+}
+
+#[test]
+fn test_adc_with_carry() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0x38,       // SEC (set carry)
+        0xA9, 0x10, // LDA #$10
+        0x69, 0x05, // ADC #$05 (should add carry too)
+    ]);
+    
+    cpu.step(&mut memory); // SEC
+    cpu.step(&mut memory); // LDA #$10
+    cpu.step(&mut memory); // ADC #$05
+    
+    assert_eq!(cpu.a & 0xFF, 0x16); // 0x10 + 0x05 + 1 (carry) = 0x16
+}
+
+#[test]
+fn test_sbc_immediate() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0x38,       // SEC (set carry for proper SBC)
+        0xA9, 0x20, // LDA #$20
+        0xE9, 0x10, // SBC #$10
+        0xE9, 0x20, // SBC #$20 (should cause borrow)
+    ]);
+    
+    cpu.step(&mut memory); // SEC
+    cpu.step(&mut memory); // LDA #$20
+    
+    cpu.step(&mut memory); // SBC #$10
+    assert_eq!(cpu.a & 0xFF, 0x10); // 0x20 - 0x10 = 0x10
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), true); // No borrow
+    
+    cpu.step(&mut memory); // SBC #$20
+    assert_eq!(cpu.a & 0xFF, 0xF0); // 0x10 - 0x20 = -0x10 = 0xF0 (two's complement)
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), false); // Borrow occurred
+}
+
+#[test]
+fn test_inc_accumulator() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0xFE, // LDA #$FE
+        0x1A,       // INC A
+        0x1A,       // INC A (should wrap to 0)
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$FE
+    
+    cpu.step(&mut memory); // INC A
+    assert_eq!(cpu.a & 0xFF, 0xFF);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), false);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), true);
+    
+    cpu.step(&mut memory); // INC A (wrap to 0)
+    assert_eq!(cpu.a & 0xFF, 0x00);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), false);
+}
+
+#[test]
+fn test_dec_accumulator() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x01, // LDA #$01
+        0x3A,       // DEC A
+        0x3A,       // DEC A (should wrap to 0xFF)
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$01
+    
+    cpu.step(&mut memory); // DEC A
+    assert_eq!(cpu.a & 0xFF, 0x00);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+    
+    cpu.step(&mut memory); // DEC A (wrap to 0xFF)
+    assert_eq!(cpu.a & 0xFF, 0xFF);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), true);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), false);
+}
+
+#[test]
+fn test_inc_memory() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x42,       // LDA #$42
+        0x85, 0x10,       // STA $10 (store to direct page)
+        0xE6, 0x10,       // INC $10
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$42
+    cpu.step(&mut memory); // STA $10
+    cpu.step(&mut memory); // INC $10
+    
+    assert_eq!(memory.read(0x000010), 0x43);
+}
+
+// === LOGICAL OPERATION TESTS ===
+
+#[test]
+fn test_and_immediate() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0xFF, // LDA #$FF
+        0x29, 0x0F, // AND #$0F
+        0x29, 0x00, // AND #$00 (should set zero flag)
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$FF
+    
+    cpu.step(&mut memory); // AND #$0F
+    assert_eq!(cpu.a & 0xFF, 0x0F);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), false);
+    
+    cpu.step(&mut memory); // AND #$00
+    assert_eq!(cpu.a & 0xFF, 0x00);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+}
+
+#[test]
+fn test_or_immediate() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x0F, // LDA #$0F
+        0x09, 0xF0, // ORA #$F0
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$0F
+    cpu.step(&mut memory); // ORA #$F0
+    
+    assert_eq!(cpu.a & 0xFF, 0xFF); // 0x0F | 0xF0 = 0xFF
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), true);
+}
+
+#[test]
+fn test_xor_immediate() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0xFF, // LDA #$FF
+        0x49, 0xFF, // EOR #$FF (should result in 0)
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$FF
+    cpu.step(&mut memory); // EOR #$FF
+    
+    assert_eq!(cpu.a & 0xFF, 0x00); // 0xFF ^ 0xFF = 0x00
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+}
+
+// === COMPARE OPERATION TESTS ===
+
+#[test]
+fn test_cmp_immediate() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x42, // LDA #$42
+        0xC9, 0x42, // CMP #$42 (equal)
+        0xC9, 0x30, // CMP #$30 (A > operand)
+        0xC9, 0x50, // CMP #$50 (A < operand)
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$42
+    
+    cpu.step(&mut memory); // CMP #$42 (equal)
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), true);
+    
+    cpu.step(&mut memory); // CMP #$30 (A > operand)
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), false);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), true);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), false);
+    
+    cpu.step(&mut memory); // CMP #$50 (A < operand)
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), false);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), false);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), true);
+}
+
+#[test]
+fn test_cpx_immediate() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA2, 0x30, // LDX #$30
+        0xE0, 0x30, // CPX #$30 (equal)
+        0xE0, 0x20, // CPX #$20 (X > operand)
+    ]);
+    
+    cpu.step(&mut memory); // LDX #$30
+    
+    cpu.step(&mut memory); // CPX #$30
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), true);
+    
+    cpu.step(&mut memory); // CPX #$20
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), false);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), true);
+}
+
+#[test]
+fn test_cpy_immediate() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA0, 0x25, // LDY #$25
+        0xC0, 0x25, // CPY #$25 (equal)
+        0xC0, 0x30, // CPY #$30 (Y < operand)
+    ]);
+    
+    cpu.step(&mut memory); // LDY #$25
+    
+    cpu.step(&mut memory); // CPY #$25
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), true);
+    
+    cpu.step(&mut memory); // CPY #$30
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), false);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), false);
+}
+
+// === SHIFT OPERATION TESTS ===
+
+#[test]
+fn test_asl_accumulator() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x40, // LDA #$40
+        0x0A,       // ASL A
+        0x0A,       // ASL A (should set carry)
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$40
+    
+    cpu.step(&mut memory); // ASL A
+    assert_eq!(cpu.a & 0xFF, 0x80);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), false);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), true);
+    
+    cpu.step(&mut memory); // ASL A (should set carry)
+    assert_eq!(cpu.a & 0xFF, 0x00);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), true);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+}
+
+#[test]
+fn test_lsr_accumulator() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x81, // LDA #$81
+        0x4A,       // LSR A
+        0x4A,       // LSR A (should set carry)
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$81
+    
+    cpu.step(&mut memory); // LSR A
+    assert_eq!(cpu.a & 0xFF, 0x40);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), true); // LSB was 1
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), false);
+    
+    cpu.step(&mut memory); // LSR A
+    assert_eq!(cpu.a & 0xFF, 0x20);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), false); // LSB was 0
+}
+
+#[test]
+fn test_asl_memory() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x40,       // LDA #$40
+        0x85, 0x10,       // STA $10
+        0x06, 0x10,       // ASL $10
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$40
+    cpu.step(&mut memory); // STA $10
+    cpu.step(&mut memory); // ASL $10
+    
+    assert_eq!(memory.read(0x000010), 0x80);
+}
+
+// === OVERFLOW FLAG TESTS ===
+
+#[test]
+fn test_adc_overflow() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0x18,       // CLC
+        0xA9, 0x7F, // LDA #$7F (127, maximum positive 8-bit)
+        0x69, 0x01, // ADC #$01 (should cause overflow)
+    ]);
+    
+    cpu.step(&mut memory); // CLC
+    cpu.step(&mut memory); // LDA #$7F
+    cpu.step(&mut memory); // ADC #$01
+    
+    assert_eq!(cpu.a & 0xFF, 0x80); // 127 + 1 = 128 (negative in signed)
+    assert_eq!(cpu.get_flag(Cpu::FLAG_OVERFLOW), true);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), true);
+}
+
+#[test]
+fn test_sbc_overflow() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0x38,       // SEC
+        0xA9, 0x80, // LDA #$80 (-128, minimum negative 8-bit)
+        0xE9, 0x01, // SBC #$01 (should cause overflow)
+    ]);
+    
+    cpu.step(&mut memory); // SEC
+    cpu.step(&mut memory); // LDA #$80
+    cpu.step(&mut memory); // SBC #$01
+    
+    assert_eq!(cpu.a & 0xFF, 0x7F); // -128 - 1 = 127 (overflow to positive)
+    assert_eq!(cpu.get_flag(Cpu::FLAG_OVERFLOW), true);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), false);
+}
+
+// === COMPLEX OPERATION TESTS ===
+
+#[test]
+fn test_complex_arithmetic_sequence() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0x18,       // CLC
+        0xA9, 0x10, // LDA #$10
+        0x69, 0x05, // ADC #$05  (A = 0x15)
+        0x29, 0x0F, // AND #$0F  (A = 0x05)
+        0x09, 0x20, // ORA #$20  (A = 0x25)
+        0x49, 0xFF, // EOR #$FF  (A = 0xDA)
+        0xC9, 0xDA, // CMP #$DA  (should set zero and carry)
+    ]);
+    
+    cpu.step(&mut memory); // CLC
+    cpu.step(&mut memory); // LDA #$10
+    cpu.step(&mut memory); // ADC #$05
+    assert_eq!(cpu.a & 0xFF, 0x15);
+    
+    cpu.step(&mut memory); // AND #$0F
+    assert_eq!(cpu.a & 0xFF, 0x05);
+    
+    cpu.step(&mut memory); // ORA #$20
+    assert_eq!(cpu.a & 0xFF, 0x25);
+    
+    cpu.step(&mut memory); // EOR #$FF
+    assert_eq!(cpu.a & 0xFF, 0xDA);
+    
+    cpu.step(&mut memory); // CMP #$DA
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), true);
+}
+
+#[test]
+fn test_memory_operations_sequence() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x42,       // LDA #$42
+        0x8D, 0x00, 0x30, // STA $3000
+        0xEE, 0x00, 0x30, // INC $3000
+        0xAD, 0x00, 0x30, // LDA $3000
+        0xC9, 0x43,       // CMP #$43
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$42
+    cpu.step(&mut memory); // STA $3000
+    cpu.step(&mut memory); // INC $3000
+    
+    assert_eq!(memory.read(0x003000), 0x43);
+    
+    cpu.step(&mut memory); // LDA $3000
+    assert_eq!(cpu.a & 0xFF, 0x43);
+    
+    cpu.step(&mut memory); // CMP #$43
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+}
