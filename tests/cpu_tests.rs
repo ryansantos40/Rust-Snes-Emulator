@@ -640,3 +640,391 @@ fn test_memory_operations_sequence() {
     cpu.step(&mut memory); // CMP #$43
     assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
 }
+
+// === TRANSFER INSTRUCTION TESTS ===
+
+#[test]
+fn test_tax_transfer() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x42, // LDA #$42
+        0xAA,       // TAX
+        0xA9, 0x00, // LDA #$00 (to verify X preserved)
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$42
+    assert_eq!(cpu.a & 0xFF, 0x42);
+    
+    cpu.step(&mut memory); // TAX
+    assert_eq!(cpu.x & 0xFF, 0x42);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), false);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), false);
+    
+    cpu.step(&mut memory); // LDA #$00
+    assert_eq!(cpu.a & 0xFF, 0x00);
+    assert_eq!(cpu.x & 0xFF, 0x42); // X should be preserved
+}
+
+#[test]
+fn test_tay_transfer() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x80, // LDA #$80 (negative value)
+        0xA8,       // TAY
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$80
+    cpu.step(&mut memory); // TAY
+    
+    assert_eq!(cpu.y & 0xFF, 0x80);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), true);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), false);
+}
+
+#[test]
+fn test_txa_transfer() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA2, 0x33, // LDX #$33
+        0x8A,       // TXA
+    ]);
+    
+    cpu.step(&mut memory); // LDX #$33
+    assert_eq!(cpu.x & 0xFF, 0x33);
+    
+    cpu.step(&mut memory); // TXA
+    assert_eq!(cpu.a & 0xFF, 0x33);
+}
+
+#[test]
+fn test_tya_transfer() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA0, 0x00, // LDY #$00 (zero value)
+        0x98,       // TYA
+    ]);
+    
+    cpu.step(&mut memory); // LDY #$00
+    cpu.step(&mut memory); // TYA
+    
+    assert_eq!(cpu.a & 0xFF, 0x00);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), false);
+}
+
+#[test]
+fn test_tsx_transfer() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xBA,       // TSX
+    ]);
+    
+    // Stack pointer starts at 0x01FF in emulation mode
+    cpu.step(&mut memory); // TSX
+    
+    assert_eq!(cpu.x & 0xFF, 0xFF); // Low byte of SP
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), true); // 0xFF is negative
+}
+
+#[test]
+fn test_txs_transfer() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA2, 0x50, // LDX #$50
+        0x9A,       // TXS
+        0xBA,       // TSX (to verify)
+    ]);
+    
+    cpu.step(&mut memory); // LDX #$50
+    cpu.step(&mut memory); // TXS
+    
+    // In emulation mode, SP should be 0x0150
+    assert_eq!(cpu.sp, 0x0150);
+    
+    cpu.step(&mut memory); // TSX
+    assert_eq!(cpu.x & 0xFF, 0x50);
+}
+
+#[test]
+fn test_transfer_flags_zero() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x00, // LDA #$00
+        0xAA,       // TAX (should set zero flag)
+        0xA8,       // TAY (should set zero flag)
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$00
+    
+    cpu.step(&mut memory); // TAX
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+    
+    cpu.step(&mut memory); // TAY
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+}
+
+#[test]
+fn test_transfer_sequence() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x55, // LDA #$55
+        0xAA,       // TAX (A → X)
+        0xA8,       // TAY (A → Y)  
+        0xA9, 0x00, // LDA #$00
+        0x8A,       // TXA (X → A)
+        0x98,       // TYA (should load Y to A, overwriting X value)
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$55
+    cpu.step(&mut memory); // TAX
+    cpu.step(&mut memory); // TAY
+    
+    assert_eq!(cpu.x & 0xFF, 0x55);
+    assert_eq!(cpu.y & 0xFF, 0x55);
+    
+    cpu.step(&mut memory); // LDA #$00
+    assert_eq!(cpu.a & 0xFF, 0x00);
+    
+    cpu.step(&mut memory); // TXA
+    assert_eq!(cpu.a & 0xFF, 0x55);
+    
+    cpu.step(&mut memory); // TYA
+    assert_eq!(cpu.a & 0xFF, 0x55);
+}
+
+#[test]
+fn test_txy_tyx_transfer() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA2, 0x33, // LDX #$33
+        0x9B,       // TXY (X → Y)
+        0xA2, 0x44, // LDX #$44
+        0xBB,       // TYX (Y → X)
+    ]);
+    
+    cpu.step(&mut memory); // LDX #$33
+    assert_eq!(cpu.x & 0xFF, 0x33);
+    
+    cpu.step(&mut memory); // TXY
+    assert_eq!(cpu.y & 0xFF, 0x33);
+    
+    cpu.step(&mut memory); // LDX #$44
+    assert_eq!(cpu.x & 0xFF, 0x44);
+    assert_eq!(cpu.y & 0xFF, 0x33); // Y preserved
+    
+    cpu.step(&mut memory); // TYX
+    assert_eq!(cpu.x & 0xFF, 0x33); // X now has Y's value
+    assert_eq!(cpu.y & 0xFF, 0x33); // Y unchanged
+}
+
+// === STACK OPERATION TESTS ===
+
+#[test]
+fn test_pha_pla() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x42, // LDA #$42
+        0x48,       // PHA
+        0xA9, 0x00, // LDA #$00 (clear A)
+        0x68,       // PLA
+    ]);
+    
+    let initial_sp = cpu.sp;
+    
+    cpu.step(&mut memory); // LDA #$42
+    assert_eq!(cpu.a & 0xFF, 0x42);
+    
+    cpu.step(&mut memory); // PHA
+    assert_eq!(cpu.sp, initial_sp - 1); // SP should decrease
+    assert_eq!(memory.read(initial_sp as u32), 0x42); // Value on stack
+    
+    cpu.step(&mut memory); // LDA #$00
+    assert_eq!(cpu.a & 0xFF, 0x00);
+    
+    cpu.step(&mut memory); // PLA
+    assert_eq!(cpu.a & 0xFF, 0x42); // Should restore original value
+    assert_eq!(cpu.sp, initial_sp); // SP should be back to original
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), false);
+}
+
+#[test]
+fn test_php_plp() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0x38,       // SEC (set carry)
+        0x08,       // PHP
+        0x18,       // CLC (clear carry)
+        0x28,       // PLP
+    ]);
+    
+    cpu.step(&mut memory); // SEC
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), true);
+    
+    let status_before = cpu.p;
+    
+    cpu.step(&mut memory); // PHP
+    // Status should be pushed to stack
+    
+    cpu.step(&mut memory); // CLC
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), false);
+    
+    cpu.step(&mut memory); // PLP
+    assert_eq!(cpu.p, status_before); // Status should be restored
+    assert_eq!(cpu.get_flag(Cpu::FLAG_CARRY), true);
+}
+
+#[test]
+fn test_phx_plx() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA2, 0x33, // LDX #$33
+        0xDA,       // PHX
+        0xA2, 0x00, // LDX #$00 (clear X)
+        0xFA,       // PLX
+    ]);
+    
+    cpu.step(&mut memory); // LDX #$33
+    assert_eq!(cpu.x & 0xFF, 0x33);
+    
+    cpu.step(&mut memory); // PHX
+    cpu.step(&mut memory); // LDX #$00
+    assert_eq!(cpu.x & 0xFF, 0x00);
+    
+    cpu.step(&mut memory); // PLX
+    assert_eq!(cpu.x & 0xFF, 0x33); // Should restore original value
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), false);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), false);
+}
+
+#[test]
+fn test_phy_ply() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA0, 0x80, // LDY #$80 (negative value)
+        0x5A,       // PHY
+        0xA0, 0x00, // LDY #$00 (clear Y)
+        0x7A,       // PLY
+    ]);
+    
+    cpu.step(&mut memory); // LDY #$80
+    assert_eq!(cpu.y & 0xFF, 0x80);
+    
+    cpu.step(&mut memory); // PHY
+    cpu.step(&mut memory); // LDY #$00
+    assert_eq!(cpu.y & 0xFF, 0x00);
+    
+    cpu.step(&mut memory); // PLY
+    assert_eq!(cpu.y & 0xFF, 0x80); // Should restore original value
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), false);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), true);
+}
+
+#[test]
+fn test_stack_pointer_wrap() {
+    let mut cpu = Cpu::new();
+    // Set stack pointer near boundary
+    cpu.sp = 0x0101;
+    
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0xAA, // LDA #$AA
+        0x48,       // PHA (should wrap SP in emulation mode)
+        0x48,       // PHA (another push)
+        0x68,       // PLA
+        0x68,       // PLA
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$AA
+    cpu.step(&mut memory); // PHA
+    assert_eq!(cpu.sp, 0x0100);
+    
+    cpu.step(&mut memory); // PHA (should wrap to 0x01FF)
+    assert_eq!(cpu.sp, 0x01FF);
+    
+    cpu.step(&mut memory); // PLA
+    assert_eq!(cpu.sp, 0x0100);
+    
+    cpu.step(&mut memory); // PLA
+    assert_eq!(cpu.sp, 0x0101); // Back to original
+    assert_eq!(cpu.a & 0xFF, 0xAA);
+}
+
+#[test]
+fn test_multiple_pushes_pulls() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x11, // LDA #$11
+        0xA2, 0x22, // LDX #$22
+        0xA0, 0x33, // LDY #$33
+        0x48,       // PHA
+        0xDA,       // PHX
+        0x5A,       // PHY
+        // Now pull in reverse order
+        0x7A,       // PLY
+        0xFA,       // PLX
+        0x68,       // PLA
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$11
+    cpu.step(&mut memory); // LDX #$22
+    cpu.step(&mut memory); // LDY #$33
+    
+    // Push all registers
+    cpu.step(&mut memory); // PHA
+    cpu.step(&mut memory); // PHX
+    cpu.step(&mut memory); // PHY
+    
+    // Values should be on stack, let's verify by pulling
+    cpu.step(&mut memory); // PLY (gets Y back)
+    assert_eq!(cpu.y & 0xFF, 0x33);
+    
+    cpu.step(&mut memory); // PLX (gets X back)  
+    assert_eq!(cpu.x & 0xFF, 0x22);
+    
+    cpu.step(&mut memory); // PLA (gets A back)
+    assert_eq!(cpu.a & 0xFF, 0x11);
+}
+
+#[test]
+fn test_stack_flags_update() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x00, // LDA #$00
+        0x48,       // PHA
+        0x68,       // PLA (should set zero flag)
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$00
+    cpu.step(&mut memory); // PHA
+    
+    // Clear flags to test PLA updates them
+    cpu.p &= !(Cpu::FLAG_ZERO | Cpu::FLAG_NEGATIVE);
+    
+    cpu.step(&mut memory); // PLA
+    assert_eq!(cpu.get_flag(Cpu::FLAG_ZERO), true);
+    assert_eq!(cpu.get_flag(Cpu::FLAG_NEGATIVE), false);
+}
+
+#[test]
+fn test_stack_preserve_values() {
+    let mut cpu = Cpu::new();
+    let mut memory = create_test_memory_with_program(&[
+        0xA9, 0x55, // LDA #$55
+        0x48,       // PHA (save A)
+        0xA9, 0xAA, // LDA #$AA (change A)
+        0x69, 0x01, // ADC #$01 (A = 0xAB)
+        0x68,       // PLA (restore original A = 0x55)
+        0x69, 0x01, // ADC #$01 (should be 0x55 + 0x01 = 0x56)
+    ]);
+    
+    cpu.step(&mut memory); // LDA #$55
+    cpu.step(&mut memory); // PHA
+    cpu.step(&mut memory); // LDA #$AA
+    cpu.step(&mut memory); // ADC #$01
+    assert_eq!(cpu.a & 0xFF, 0xAB);
+    
+    cpu.step(&mut memory); // PLA
+    assert_eq!(cpu.a & 0xFF, 0x55); // Original value restored
+    
+    cpu.step(&mut memory); // ADC #$01
+    assert_eq!(cpu.a & 0xFF, 0x56); // 0x55 + 0x01 = 0x56
+}

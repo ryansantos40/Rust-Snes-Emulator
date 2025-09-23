@@ -349,6 +349,261 @@ impl Cpu {
                 }
             }
 
+            Operation::TransferAX => {
+                if self.x_flag {
+                    let value = self.a & 0xFF;
+                    self.x = (self.x & 0xFF00) | value;
+
+                } else {
+                    self.x = self.a;
+
+                }
+
+                self.update_nz_flags_x();
+            }
+
+            Operation::TransferAY => {
+                if self.x_flag {
+                    let value = self.a & 0xFF;
+                    self.y = (self.y & 0xFF00) | value;
+
+                } else {
+                    self.y = self.a;
+
+                }
+
+                self.update_nz_flags_y();
+            }
+
+            Operation::TransferXA => {
+                if self.m_flag {
+                    let value = self.x & 0xFF;
+                    self.a = (self.a & 0xFF00) | value;
+
+                } else {
+                    self.a = self.x;
+
+                }
+
+                self.update_nz_flags_a();
+            }
+
+            Operation::TransferYA => {
+                if self.m_flag {
+                    let value = self.y & 0xFF;
+                    self.a = (self.a & 0xFF00) | value;
+
+                } else {
+                    self.a = self.y;
+
+                }
+
+                self.update_nz_flags_a();
+            }
+
+            Operation::TransferSX => {
+                if self.x_flag {
+                    let value = self.sp & 0xFF;
+                    self.x = (self.x & 0xFF00) | value;
+
+                } else {
+                    self.x = self.sp;
+
+                }
+
+                self.update_nz_flags_x();
+            }
+
+            Operation::TransferXS => {
+                if self.e_flag {
+                    self.sp = 0x0100 | (self.x & 0xFF);
+
+                } else {
+                    if self.x_flag{
+                        self.sp = (self.sp & 0xFF00) | (self.x & 0xFF);
+
+                    } else {
+                        self.sp = self.x;
+
+                    }
+
+                }
+            }
+
+            Operation::TransferXY => {
+                if self.x_flag {
+                    let value = self.x & 0xFF;
+                    self.y = (self.y & 0xFF00) | value;
+
+                } else {
+
+                    self.y = self.x;
+                }
+
+                self.update_nz_flags_y();
+
+            }
+
+            Operation::TransferYX => {
+                if self.x_flag {
+                    let value = self.y & 0xFF;
+                    self.x = (self.x & 0xFF00) | value;
+
+                } else {
+
+                    self.x = self.y;
+                }
+
+                self.update_nz_flags_x();
+            }
+
+            Operation::TransferSC => {
+                if self.m_flag {
+                    let value = self.sp & 0xFF;
+                    self.a = (self.sp & 0xFF00) | value;
+
+                } else {
+                    self.a = self.sp;
+                }
+
+                self.update_nz_flags_a();
+            }
+
+            Operation::TransferCS => {
+                if self.e_flag {
+                    self.sp = 0x0100 | (self.sp & 0xFF);
+
+                } else {
+                    if self.m_flag {
+                        self.sp = (self.sp & 0xFF00) | (self.a & 0xFF);
+
+                    } else {
+                        self.sp = self.a;
+                    }
+                }
+            }
+
+            Operation::PushA => {
+                if self.m_flag {
+                    self.push_byte(memory, (self.a & 0xFF) as u8);
+
+                } else {
+                    self.push_byte(memory, (self.a >> 8) as u8);
+                    self.push_byte(memory, (self.a & 0xFF) as u8);
+                }
+            }
+
+            Operation::PullA => {
+                if self.m_flag {
+                    let value = self.pull_byte(memory) as u16;
+                    self.a = (self.a & 0xFF00) | value;
+
+                } else {
+                    let low = self.pull_byte(memory) as u16;
+                    let high = self.pull_byte(memory) as u16;
+                    self.a = (high << 8) | low;
+                }
+
+                self.update_nz_flags_a();
+            }
+
+            Operation::PushP => {
+                self.push_byte(memory, self.p);
+            }
+
+            Operation::PullP => {
+                self.p = self.pull_byte(memory);
+                self.update_mode_flags();
+            }
+
+            Operation::PushX => {
+                if self.x_flag {
+                    self.push_byte(memory, (self.x & 0xFF) as u8);
+
+                } else {
+                    self.push_byte(memory, (self.x >> 8) as u8);
+                    self.push_byte(memory, (self.x & 0xFF) as u8);
+                }
+            }
+
+            Operation::PullX => {
+                if self.x_flag {
+                    let value = self.pull_byte(memory) as u16;
+                    self.x = (self.x & 0xFF00) | value;
+
+                } else {
+                    let low = self.pull_byte(memory) as u16;
+                    let high = self.pull_byte(memory) as u16;
+                    self.x = (high << 8) | low;
+                }
+
+                self.update_nz_flags_x();
+            }
+
+            Operation::PushY => {
+                if self.x_flag {
+                    self.push_byte(memory, (self.y & 0xFF) as u8);
+
+                } else {
+                    self.push_byte(memory, (self.y >> 8) as u8);
+                    self.push_byte(memory, (self.y & 0xFF) as u8);
+                }
+            }
+
+            Operation::PullY => {
+                if self.x_flag {
+                    let value = self.pull_byte(memory) as u16;
+                    self.y = (self.y & 0xFF00) | value;
+
+                } else {
+                    let low = self.pull_byte(memory) as u16;
+                    let high = self.pull_byte(memory) as u16;
+                    self.y = (high << 8) | low;
+                }
+
+                self.update_nz_flags_y();
+            }
+
+            Operation::JumpSubroutine => {
+                let target = self.read_address(mode, memory);
+
+                let return_addr = self.pc -1;
+                self.push_byte(memory, (return_addr >> 8) as u8);
+                self.push_byte(memory, return_addr as u8);
+
+                self.pc = target;
+            }
+
+            Operation::ReturnFromSubroutine => {
+                let low = self.pull_byte(memory) as u32;
+                let high = self.pull_byte(memory) as u32;
+                self.pc = ((high << 8) | low) + 1;
+            }
+
+            Operation::ReturnFromInterrupt => {
+                self.p = self.pull_byte(memory);
+                let low = self.pull_byte(memory) as u32;
+                let high = self.pull_byte(memory) as u32;
+                self.pc = (high << 8) | low;
+
+                self.update_mode_flags();
+            }
+
+            Operation::SoftwareInterrupt => {
+                self.pc += 1;
+
+                self.push_byte(memory, (self.pc >> 8) as u8);
+                self.push_byte(memory, self.pc as u8);
+                self.push_byte(memory, self.p | 0x10);
+
+                self.p |= Self::FLAG_IRQ;
+
+                let brk_low = memory.read(0x00FFFE) as u32;
+                let brk_high = memory.read(0x00FFFF) as u32;
+                self.pc = (brk_high << 8) | brk_low;
+
+            }
+
             Operation::SetFlag(flag) => self.set_flag(flag),
             Operation::ClearFlag(flag) => self.clear_flag(flag),
 
@@ -581,7 +836,39 @@ impl Cpu {
         }
     }
 
+    fn push_byte(&mut self, memory: &mut Memory, value: u8) {
+        memory.write(self.sp as u32, value);
 
+        if self.e_flag {
+            if (self.sp & 0xFF) == 0x00 {
+                self.sp = 0x01FF;
+
+            } else {
+                self.sp -= 1;
+
+
+            }
+
+        } else {
+            self.sp = self.sp.wrapping_sub(1);
+        }
+    }
+
+    fn pull_byte(&mut self, memory: &mut Memory) -> u8 {
+        if self.e_flag {
+            if (self.sp & 0xFF) == 0xFF {
+                self.sp = 0x0100;
+
+            } else {
+                self.sp += 1;
+            }
+
+        } else {
+            self.sp = self.sp.wrapping_add(1);
+        }
+
+        memory.read(self.sp as u32)
+    }
     // ++++ Flag Operations ++++
 
     fn set_flag(&mut self, flag: u8) {
@@ -672,6 +959,13 @@ impl Cpu {
         let test_bit = if self.m_flag || self.x_flag { 0x80 } else { 0x8000 };
         if (value & test_bit) != 0 {
             self.p |= Self::FLAG_NEGATIVE;
+        }
+    }
+
+    fn update_mode_flags(&mut self) {
+        if !self.e_flag {
+            self.m_flag = (self.p & 0x20) != 0;
+            self.x_flag = (self.p & 0x10) != 0;
         }
     }
 

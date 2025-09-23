@@ -15,6 +15,13 @@ pub enum Operation {
 
     ShiftLeft, ShiftRight,
 
+    TransferAX, TransferAY, TransferXA, TransferXY, TransferYA, TransferYX, TransferSX, TransferXS,
+    TransferSC, TransferCS,
+
+    PushA, PullA, PushP, PullP, PushX, PullX, PushY, PullY,
+
+    JumpSubroutine, ReturnFromSubroutine, ReturnFromInterrupt, SoftwareInterrupt,
+
     SetFlag(u8), ClearFlag(u8),
 
     Jump, JumpIndirect,
@@ -62,6 +69,18 @@ pub fn create_opcode_table() -> HashMap<u8, OpcodeInfo> {
     table.insert(0xD8, OpcodeInfo { operation: ClearFlag(FLAG_DECIMAL), mode: Implied, cycles: 2 });
     table.insert(0xF8, OpcodeInfo { operation: SetFlag(FLAG_DECIMAL), mode: Implied, cycles: 2 });
 
+    //Transfers
+    table.insert(0xAA, OpcodeInfo { operation: TransferAX, mode: Implied, cycles: 2 });
+    table.insert(0xA8, OpcodeInfo { operation: TransferAY, mode: Implied, cycles: 2 });
+    table.insert(0x8A, OpcodeInfo { operation: TransferXA, mode: Implied, cycles: 2 });
+    table.insert(0x98, OpcodeInfo { operation: TransferYA, mode: Implied, cycles: 2 });
+    table.insert(0x9B, OpcodeInfo { operation: TransferXY, mode: Implied, cycles: 2 });
+    table.insert(0xBB, OpcodeInfo { operation: TransferYX, mode: Implied, cycles: 2 });
+    table.insert(0xBA, OpcodeInfo { operation: TransferSX, mode: Implied, cycles: 2 });
+    table.insert(0x9A, OpcodeInfo { operation: TransferXS, mode: Implied, cycles: 2 });
+    table.insert(0x3B, OpcodeInfo { operation: TransferSC, mode: Implied, cycles: 2 });
+    table.insert(0x1B, OpcodeInfo { operation: TransferCS, mode: Implied, cycles: 2 });
+
     //Load
     table.insert(0xA9, OpcodeInfo { operation: LoadA, mode: Immediate, cycles: 2 });
     table.insert(0xA5, OpcodeInfo { operation: LoadA, mode: DirectPage, cycles: 3 });
@@ -81,6 +100,7 @@ pub fn create_opcode_table() -> HashMap<u8, OpcodeInfo> {
     table.insert(0x84, OpcodeInfo { operation: StoreY, mode: DirectPage, cycles: 3 });
     table.insert(0x8C, OpcodeInfo { operation: StoreY, mode: Absolute, cycles: 4 });
 
+    //Arithmetic
     table.insert(0x69, OpcodeInfo { operation: Add, mode: Immediate, cycles: 2 });
     table.insert(0x65, OpcodeInfo { operation: Add, mode: DirectPage, cycles: 3 });
     table.insert(0x6D, OpcodeInfo { operation: Add, mode: Absolute, cycles: 4 });
@@ -121,6 +141,17 @@ pub fn create_opcode_table() -> HashMap<u8, OpcodeInfo> {
     table.insert(0xC4, OpcodeInfo {operation: CompareY, mode: DirectPage, cycles: 3});
     table.insert(0xCC, OpcodeInfo {operation: CompareY, mode: Absolute, cycles: 4});
 
+    //Stacks
+    table.insert(0x48, OpcodeInfo { operation: PushA, mode: Implied, cycles: 3 });
+    table.insert(0x68, OpcodeInfo { operation: PullA, mode: Implied, cycles: 4 });
+    table.insert(0x08, OpcodeInfo { operation: PushP, mode: Implied, cycles: 3 });
+    table.insert(0x28, OpcodeInfo { operation: PullP, mode: Implied, cycles: 4 });
+    table.insert(0xDA, OpcodeInfo { operation: PushX, mode: Implied, cycles: 3 });
+    table.insert(0xFA, OpcodeInfo { operation: PullX, mode: Implied, cycles: 4 });
+    table.insert(0x5A, OpcodeInfo { operation: PushY, mode: Implied, cycles: 3 });
+    table.insert(0x7A, OpcodeInfo { operation: PullY, mode: Implied, cycles: 4 }); 
+
+    //Shifts
     table.insert(0x0A, OpcodeInfo { operation: ShiftLeft, mode: Implied, cycles: 2 });
     table.insert(0x06, OpcodeInfo { operation: ShiftLeft, mode: DirectPage, cycles: 5 });
     table.insert(0x0E, OpcodeInfo { operation: ShiftLeft, mode: Absolute, cycles: 6 });
@@ -128,6 +159,12 @@ pub fn create_opcode_table() -> HashMap<u8, OpcodeInfo> {
     table.insert(0x4A, OpcodeInfo { operation: ShiftRight, mode: Implied, cycles: 2 });
     table.insert(0x46, OpcodeInfo { operation: ShiftRight, mode: DirectPage, cycles: 5 });
     table.insert(0x4E, OpcodeInfo { operation: ShiftRight, mode: Absolute, cycles: 6 });
+
+    //Subroutines
+    table.insert(0x20, OpcodeInfo { operation: JumpSubroutine, mode: Absolute, cycles: 6 });
+    table.insert(0x60, OpcodeInfo { operation: ReturnFromSubroutine, mode: Implied, cycles: 6 });
+    table.insert(0x40, OpcodeInfo { operation: ReturnFromInterrupt, mode: Implied, cycles: 6 });
+    table.insert(0x00, OpcodeInfo { operation: SoftwareInterrupt, mode: Implied, cycles: 7 });
 
     //Jumps
     table.insert(0x4C, OpcodeInfo { operation: Jump, mode: Absolute, cycles: 3 });
