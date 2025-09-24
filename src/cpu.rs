@@ -125,6 +125,18 @@ impl Cpu {
                 self.write_operand(mode, memory, value, true);
             }
 
+            Operation::StoreZero => {
+                let addr = self.get_effective_address(mode, memory);
+
+                if self.m_flag {
+                    memory.write(addr, 0);
+
+                } else {
+                    memory.write(addr, 0);
+                    memory.write(addr + 1, 0);
+                }
+            }
+
             Operation::Add => {
                 let operand = self.read_operand(mode, memory, false);
                 self.adc(operand);
@@ -669,11 +681,103 @@ impl Cpu {
                 }
             }
 
+            AddressingMode:: DirectPageIndexedX => {
+                let base = memory.read(self.pc) as u16;
+                self.pc += 1;
+                let addr = (self.dp + base + (self.x & 0xFF)) & 0xFFFF;
+
+                if is_8bit {
+                    memory.read(addr as u32) as u16
+                } else {
+                    let low = memory.read(addr as u32) as u16;
+                    let high = memory.read((addr + 1) as u32) as u16;
+                    (high << 8) | low
+                }
+            }
+
+            AddressingMode::DirectPageIndexedY => {
+                let base = memory.read(self.pc) as u16;
+                self.pc += 1;
+                let addr = (self.dp + base + (self.y & 0xFF)) & 0xFFFF;
+
+                if is_8bit {
+                    memory.read(addr as u32) as u16
+                } else {
+                    let low = memory.read(addr as u32) as u16;
+                    let high = memory.read((addr + 1) as u32) as u16;
+                    (high << 8) | low
+                }
+            }
+
             AddressingMode::Absolute => {
                 let addr = self.read_address(mode, memory);
 
                 if is_8bit {
                     memory.read(addr) as u16
+                } else {
+                    let low = memory.read(addr) as u16;
+                    let high = memory.read(addr + 1) as u16;
+                    (high << 8) | low
+                }
+            }
+
+            AddressingMode::AbsoluteIndexedX => {
+                let base = self.read_address(AddressingMode::Absolute, memory);
+                let addr = base + (self.x & 0xFFFF) as u32;
+
+                if is_8bit {
+                    memory.read(addr) as u16
+                } else {
+                    let low = memory.read(addr) as u16;
+                    let high = memory.read(addr + 1) as u16;
+                    (high << 8) | low
+                }
+            }
+
+            AddressingMode::AbsoluteIndexedY => {
+                let base = self.read_address(AddressingMode::Absolute, memory);
+                let addr = base + (self.y & 0xFFFF) as u32;
+
+                if is_8bit {
+                    memory.read(addr) as u16
+                } else {
+                    let low = memory.read(addr) as u16;
+                    let high = memory.read(addr + 1) as u16;
+                    (high << 8) | low
+                }
+            }
+
+            AddressingMode::IndirectIndexed => {
+                let dp_addr = (self.dp + memory.read(self.pc) as u16) & 0xFFFF;
+                self.pc += 1;
+
+                let prt_low = memory.read(dp_addr as u32) as u32;
+                let ptr_high = memory.read(((dp_addr + 1) & 0xFFFF) as u32) as u32;
+                let base_addr = (ptr_high << 8) | prt_low;
+                let addr = base_addr + (self.y & 0xFFFF) as u32;
+
+                if is_8bit{
+                    memory.read(addr) as u16
+                } else {
+                    let low = memory.read(addr) as u16;
+                    let high = memory.read(addr + 1) as u16;
+                    (high << 8) | low
+                }
+
+            }
+
+            AddressingMode::IndexedIndirect => {
+                let base = memory.read(self.pc) as u16;
+                self.pc += 1;
+                let dp_addr = (self.dp + base + (self.x & 0xFF)) & 0xFFFF;
+
+                let ptr_low = memory.read(dp_addr as u32) as u32;
+                let ptr_high = memory.read(((dp_addr + 1) & 0xFFFF) as u32) as u32;
+                let addr = (ptr_high << 8) | ptr_low;
+
+                if is_8bit{
+                    memory.read(addr) as u16
+
                 } else {
                     let low = memory.read(addr) as u16;
                     let high = memory.read(addr + 1) as u16;
@@ -703,8 +807,80 @@ impl Cpu {
                 }
             }
 
+            AddressingMode::DirectPageIndexedX => {
+                let base = memory.read(self.pc) as u16;
+                self.pc += 1;
+                let addr = (self.dp + base + (self.x & 0xFF)) & 0xFFFF;
+
+                memory.write(addr as u32, value as u8);
+                if !is_8bit {
+                    memory.write((addr + 1) as u32, (value >> 8) as u8);
+                }
+            }
+
+            AddressingMode::DirectPageIndexedY => {
+                let base = memory.read(self.pc) as u16;
+                self.pc += 1;
+                let addr = (self.dp + base + (self.y & 0xFF)) & 0xFFFF;
+
+                memory.write(addr as u32, value as u8);
+                if !is_8bit {
+                    memory.write((addr + 1) as u32, (value >> 8) as u8);
+                }
+            }
+
             AddressingMode::Absolute => {
                 let addr = self.read_address(mode, memory);
+
+                memory.write(addr, value as u8);
+                if !is_8bit {
+                    memory.write(addr + 1, (value >> 8) as u8);
+                }
+            }
+
+            AddressingMode::AbsoluteIndexedX => {
+                let base = self.read_address(AddressingMode::Absolute, memory);
+                let addr = base + (self.x & 0xFFFF) as u32;
+
+                memory.write(addr, value as u8);
+                if !is_8bit {
+                    memory.write(addr + 1, (value >> 8) as u8);
+                }
+            }
+
+            AddressingMode::AbsoluteIndexedY => {
+                let base = self.read_address(AddressingMode::Absolute, memory);
+                let addr = base + (self.y & 0xFFFF) as u32;
+
+                memory.write(addr, value as u8);
+                if !is_8bit {
+                    memory.write(addr + 1, (value >> 8) as u8);
+                }
+            }
+
+            AddressingMode::IndirectIndexed => {
+                let dp_addr = (self.dp + memory.read(self.pc) as u16) & 0xFFFF;
+                self.pc += 1;
+
+                let ptr_low = memory.read(dp_addr as u32) as u32;
+                let ptr_high = memory.read(((dp_addr + 1) & 0xFFFF) as u32) as u32;
+                let base_addr = (ptr_high << 8) | ptr_low;
+                let addr = base_addr + (self.y & 0xFFFF) as u32;
+
+                memory.write(addr, value as u8);
+                if !is_8bit {
+                    memory.write(addr + 1, (value >> 8) as u8);
+                }
+            }
+
+            AddressingMode::IndexedIndirect => {
+                let base = memory.read(self.pc) as u16;
+                self.pc += 1;
+                let dp_addr = (self.dp + base + (self.x & 0xFF)) & 0xFFFF;
+
+                let ptr_low = memory.read(dp_addr as u32) as u32;
+                let ptr_high = memory.read(((dp_addr + 1) & 0xFFFF) as u32) as u32;
+                let addr = (ptr_high << 8) | ptr_low;
 
                 memory.write(addr, value as u8);
                 if !is_8bit {
@@ -825,8 +1001,30 @@ impl Cpu {
                 addr as u32
             }
 
+            AddressingMode::DirectPageIndexedX => {
+                let base = memory.read(self.pc) as u16;
+                self.pc += 1;
+                ((self.dp + base + (self.x & 0xFF)) & 0xFFFF) as u32
+            }
+
+            AddressingMode::DirectPageIndexedY => {
+                let base = memory.read(self.pc) as u16;
+                self.pc += 1;
+                ((self.dp + base + (self.y & 0xFF)) & 0xFFFF) as u32
+            }
+
             AddressingMode::Absolute => {
                 self.read_address(mode, memory)
+            }
+
+            AddressingMode::AbsoluteIndexedX => {
+                let base = self.read_address(AddressingMode::Absolute, memory);
+                base + (self.x & 0xFFFF) as u32
+            }
+
+            AddressingMode::AbsoluteIndexedY => {
+                let base = self.read_address(AddressingMode::Absolute, memory);
+                base + (self.y & 0xFFFF) as u32
             }
 
             _ => {

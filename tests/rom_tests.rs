@@ -1,4 +1,5 @@
 use snes_emulator::{Cpu, Memory};
+use snes_emulator::opcodes;
 use std::fs;
 use std::path::Path;
 
@@ -70,7 +71,7 @@ fn execute_rom_test(rom_name: &str, max_instructions: usize) -> RomTestResult {
         }
         
         // Verifica se o opcode é válido antes de executar
-        if crate::snes_emulator::opcodes::get_opcode_info(opcode).is_none() {
+        if opcodes::get_opcode_info(opcode).is_none() {
             let error_msg = format!("Unknown opcode: {:02X} at PC: {:06X}", opcode, current_pc);
             println!("{}", error_msg);
             
@@ -247,4 +248,129 @@ fn test_detailed_adc() {
     
     // Este teste é mais rigoroso e pode falhar - use para debug
     assert!(result.success, "test_adc.smc deveria passar");
+}
+
+#[test]
+fn test_rom_diagnosis() {
+    let rom_name = "Super.smc";
+    println!("\n=== DIAGNÓSTICO DETALHADO: {} ===", rom_name);
+    
+    let rom_data = match load_test_rom(rom_name) {
+        Ok(data) => data,
+        Err(e) => {
+            println!("❌ Erro ao carregar ROM: {}", e);
+            return;
+        }
+    };
+    
+    println!("✅ ROM carregada com sucesso");
+    println!("📊 Tamanho da ROM: {} bytes (0x{:X})", rom_data.len(), rom_data.len());
+    
+    // Verifica se é um tamanho válido de ROM SNES
+    let valid_sizes = [0x40000, 0x80000, 0x100000, 0x200000, 0x300000, 0x400000]; // 256KB, 512KB, 1MB, 2MB, 3MB, 4MB
+    let size_valid = valid_sizes.contains(&rom_data.len());
+    println!("📏 Tamanho válido: {}", if size_valid { "✅ SIM" } else { "⚠️ NÃO" });
+    
+    let mut memory = Memory::new(rom_data);
+    
+    println!("\n=== INFORMAÇÕES DA ROM ===");
+    println!("📄 Título: '{}'", memory.get_rom_title());
+    println!("🗂️ Tipo: {:?}", memory.rom_type);
+    println!("💾 SRAM Size: {} bytes", memory.sram_size);
+    
+    println!("\n=== VETORES DE INTERRUPT/RESET ===");
+    
+    // Vetores para modo de emulação (65816 em modo 6502)
+    let native_cop   = (memory.read(0x00FFE5) as u16) << 8 | memory.read(0x00FFE4) as u16;
+    let native_brk   = (memory.read(0x00FFE7) as u16) << 8 | memory.read(0x00FFE6) as u16;
+    let native_abort = (memory.read(0x00FFE9) as u16) << 8 | memory.read(0x00FFE8) as u16;
+    let native_nmi   = (memory.read(0x00FFEB) as u16) << 8 | memory.read(0x00FFEA) as u16;
+    let native_reset = (memory.read(0x00FFED) as u16) << 8 | memory.read(0x00FFEC) as u16;
+    let native_irq   = (memory.read(0x00FFEF) as u16) << 8 | memory.read(0x00FFEE) as u16;
+    
+    // Vetores para modo de emulação
+    let emu_cop   = (memory.read(0x00FFF5) as u16) << 8 | memory.read(0x00FFF4) as u16;
+    let emu_abort = (memory.read(0x00FFF9) as u16) << 8 | memory.read(0x00FFF8) as u16;
+    let emu_nmi   = (memory.read(0x00FFFB) as u16) << 8 | memory.read(0x00FFFA) as u16;
+    let emu_reset = (memory.read(0x00FFFD) as u16) << 8 | memory.read(0x00FFFC) as u16;
+    let emu_irq   = (memory.read(0x00FFFF) as u16) << 8 | memory.read(0x00FFFE) as u16;
+    
+    println!("📍 Native Mode Vectors:");
+    println!("   COP:   ${:04X}", native_cop);
+    println!("   BRK:   ${:04X}", native_brk);
+    println!("   ABORT: ${:04X}", native_abort);
+    println!("   NMI:   ${:04X}", native_nmi);
+    println!("   RESET: ${:04X}", native_reset);
+    println!("   IRQ:   ${:04X}", native_irq);
+    
+    println!("📍 Emulation Mode Vectors:");
+    println!("   COP:   ${:04X}", emu_cop);
+    println!("   ABORT: ${:04X}", emu_abort);
+    println!("   NMI:   ${:04X}", emu_nmi);
+    println!("   RESET: ${:04X}", emu_reset);
+    println!("   IRQ:   ${:04X}", emu_irq);
+    
+    // O que seu código atual usa
+    let current_reset = (memory.read(0x00FFFD) as u32) << 8 | memory.read(0x00FFFC) as u32;
+    println!("\n🎯 Reset Vector Atual (seu código): ${:04X}", current_reset);
+    
+    // Verifica se vetores são válidos (não 0x0000 ou 0xFFFF)
+    let reset_valid = emu_reset != 0x0000 && emu_reset != 0xFFFF;
+    println!("✅ Reset Vector Válido: {}", if reset_valid { "SIM" } else { "❌ NÃO" });
+    
+    if !reset_valid {
+        println!("⚠️ PROBLEMA: Reset vector inválido! ROM pode estar corrompida ou ser de tipo diferente.");
+    }
+    
+    println!("\n=== DUMP DA MEMÓRIA NO RESET VECTOR ===");
+    if emu_reset != 0x0000 && emu_reset < 0xFFFF {
+        println!("Primeiros 16 bytes em ${:04X}:", emu_reset);
+        for i in 0..16 {
+            let addr = emu_reset.wrapping_add(i);
+            let byte = memory.read(addr as u32);
+            print!("${:04X}: {:02X} ", addr, byte);
+            if (i + 1) % 8 == 0 { println!(); }
+        }
+        println!();
+    }
+    
+    println!("\n=== DUMP DOS VECTORS RAW ===");
+    println!("Bytes em $FFFC-$FFFF:");
+    for addr in 0xFFFC..=0xFFFF {
+        let byte = memory.read(addr);
+        println!("${:04X}: {:02X}", addr, byte);
+    }
+    
+    println!("\n=== HEADER DA ROM (se existir) ===");
+    // Tenta ler header LoROM em $00:7FC0
+    println!("Tentando ler header LoROM em $7FC0:");
+    for i in 0..32 {
+        let byte = memory.read(0x7FC0 + i);
+        print!("{:02X} ", byte);
+        if (i + 1) % 16 == 0 { println!(); }
+    }
+    
+    // Tenta ler header HiROM em $00:FFC0  
+    println!("\nTentando ler header HiROM em $FFC0:");
+    for i in 0..32 {
+        let byte = memory.read(0xFFC0 + i);
+        print!("{:02X} ", byte);
+        if (i + 1) % 16 == 0 { println!(); }
+    }
+}
+
+#[test]
+fn test_super_mario_world() {
+    let result = execute_rom_test("Super.smc", 100); // Menos instruções para início
+    println!("\nResultado Super Mario World:");
+    println!("Sucesso: {}", result.success);
+    println!("Instruções executadas: {}", result.instructions_executed);
+    println!("Estado final: {}", result.final_state);
+    
+    if let Some(error) = result.error_message {
+        println!("Erro: {}", error);
+    }
+    
+    // Deve conseguir executar pelo menos algumas instruções
+    assert!(result.instructions_executed > 0, "Nenhuma instrução foi executada");
 }
