@@ -11,6 +11,10 @@ pub enum Operation {
 
     And, Or, Xor,
 
+    Xce, Rep, Sep, Tcd,
+
+    DecX, Rtl,
+
     Compare, CompareX, CompareY,
 
     ShiftLeft, ShiftRight,
@@ -41,6 +45,8 @@ pub enum AddressingMode {
     Absolute,
     AbsoluteIndexedX,
     AbsoluteIndexedY,
+    AbsoluteLong,
+    AbsoluteLongIndexedX,
     Indirect,
     IndirectIndexed,
     IndexedIndirect,
@@ -111,7 +117,9 @@ pub fn create_opcode_table() -> HashMap<u8, OpcodeInfo> {
     table.insert(0x85, OpcodeInfo { operation: StoreA, mode: DirectPage, cycles: 3 });
     table.insert(0x95, OpcodeInfo { operation: StoreA, mode: DirectPageIndexedX, cycles: 4 });
     table.insert(0x8D, OpcodeInfo { operation: StoreA, mode: Absolute, cycles: 4 });
+    table.insert(0x8F, OpcodeInfo { operation: StoreA, mode: AbsoluteLong, cycles: 5 });
     table.insert(0x9D, OpcodeInfo { operation: StoreA, mode: AbsoluteIndexedX, cycles: 5 });
+    table.insert(0x9F, OpcodeInfo { operation: StoreA, mode: AbsoluteLongIndexedX, cycles: 5 });
     table.insert(0x99, OpcodeInfo { operation: StoreA, mode: AbsoluteIndexedY, cycles: 5 });
     table.insert(0x91, OpcodeInfo { operation: StoreA, mode: IndirectIndexed, cycles: 6 });
     table.insert(0x81, OpcodeInfo { operation: StoreA, mode: IndexedIndirect, cycles: 6 });
@@ -126,7 +134,10 @@ pub fn create_opcode_table() -> HashMap<u8, OpcodeInfo> {
     table.insert(0x9C, OpcodeInfo { operation: StoreZero, mode: Absolute, cycles: 4 });
     table.insert(0x9E, OpcodeInfo { operation: StoreZero, mode: AbsoluteIndexedX, cycles: 5 });
 
-
+    table.insert(0xFB, OpcodeInfo { operation: Xce, mode: Implied, cycles: 2 });
+    table.insert(0xC2, OpcodeInfo { operation: Rep, mode: Immediate, cycles: 3 });
+    table.insert(0xE2, OpcodeInfo { operation: Sep, mode: Immediate, cycles: 3 });
+    table.insert(0x5B, OpcodeInfo { operation: Tcd, mode: Implied, cycles: 2 });
 
     //Arithmetic
     table.insert(0x69, OpcodeInfo { operation: Add, mode: Immediate, cycles: 2 });
@@ -198,6 +209,9 @@ pub fn create_opcode_table() -> HashMap<u8, OpcodeInfo> {
     table.insert(0xC0, OpcodeInfo {operation: CompareY, mode: Immediate, cycles: 2});
     table.insert(0xC4, OpcodeInfo {operation: CompareY, mode: DirectPage, cycles: 3});
     table.insert(0xCC, OpcodeInfo {operation: CompareY, mode: Absolute, cycles: 4});
+
+    table.insert(0xCA, OpcodeInfo { operation: DecX, mode: Implied, cycles: 2 });
+    table.insert(0x6B, OpcodeInfo { operation: Rtl, mode: Implied, cycles: 6 });
 
     //Stacks
     table.insert(0x48, OpcodeInfo { operation: PushA, mode: Implied, cycles: 3 });

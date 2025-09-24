@@ -258,6 +258,59 @@ impl Cpu {
                 self.update_nz_flags_a();
             }
 
+            Operation::Xce => {
+                let old_carry = self.get_flag(Self::FLAG_CARRY);
+                let old_emulation = self.e_flag;
+
+                if old_emulation {
+                    self.clear_flag(Self::FLAG_CARRY);
+
+                } else {
+                    self.set_flag(Self::FLAG_CARRY);
+
+                }
+
+                self.e_flag = old_carry;
+
+                if !self.e_flag {
+                    self.m_flag = (self.p & 0x20) != 0;
+                    self.x_flag = (self.p & 0x10) != 0;
+
+                } else {
+                    self.m_flag = true;
+                    self.x_flag = true;
+                }
+            }
+
+            Operation::Rep => {
+                let operand = self.read_operand(mode, memory, false) as u8;
+                self.p &= !operand;
+                self.update_mode_flags();
+            }
+
+            Operation::Sep => {
+                let operand = self.read_operand(mode, memory, false) as u8;
+                self.p |= operand;
+                self.update_mode_flags();
+            }
+
+            Operation::Tcd => {
+                self.dp = self.a;
+                self.update_nz_flags_a();
+            }
+
+            Operation::DecX => {
+                if self.x_flag {
+                    let result = (self.x & 0xFF).wrapping_sub(1) & 0xFF;
+                    self.x = (self.x & 0xFF00) | result;
+
+                } else {
+                    self.x = self.x.wrapping_sub(1);
+                }
+
+                self.update_nz_flags_x();
+            }
+
             Operation::Compare => {
                 let operand = self.read_operand(mode, memory, false);
                 let acc_value = if self.m_flag { self.a & 0xFF } else { self.a };
@@ -601,6 +654,14 @@ impl Cpu {
                 self.update_mode_flags();
             }
 
+            Operation::Rtl => {
+                let low = self.pull_stack(memory) as u32;
+                let high = self.pull_stack(memory) as u32;
+                let bank = self.pull_stack(memory) as u32;
+                self.pc = (bank << 16) | (high << 8) | low;
+                self.pc += 1;
+            }
+
             Operation::SoftwareInterrupt => {
                 self.pc += 1;
 
@@ -721,6 +782,19 @@ impl Cpu {
                 }
             }
 
+            AddressingMode::AbsoluteLong => {
+                let addr = self.read_address(mode, memory);
+
+                if is_8bit {
+                    memory.read(addr) as u16
+
+                } else {
+                    let low = memory.read(addr) as u16;
+                    let high = memory.read(addr + 1) as u16;
+                    (high << 8) | low
+                }
+            }
+
             AddressingMode::AbsoluteIndexedX => {
                 let base = self.read_address(AddressingMode::Absolute, memory);
                 let addr = base + (self.x & 0xFFFF) as u32;
@@ -737,6 +811,19 @@ impl Cpu {
             AddressingMode::AbsoluteIndexedY => {
                 let base = self.read_address(AddressingMode::Absolute, memory);
                 let addr = base + (self.y & 0xFFFF) as u32;
+
+                if is_8bit {
+                    memory.read(addr) as u16
+                } else {
+                    let low = memory.read(addr) as u16;
+                    let high = memory.read(addr + 1) as u16;
+                    (high << 8) | low
+                }
+            }
+
+            AddressingMode::AbsoluteLongIndexedX => {
+                let base = self.read_address(AddressingMode::AbsoluteLong, memory);
+                let addr = base + (self.x & 0xFFFF) as u32;
 
                 if is_8bit {
                     memory.read(addr) as u16
@@ -838,6 +925,15 @@ impl Cpu {
                 }
             }
 
+            AddressingMode::AbsoluteLong => {
+                let addr = self.read_address(mode, memory);
+
+                memory.write(addr, value as u8);
+                if !is_8bit {
+                    memory.write(addr + 1, (value >> 8) as u8);
+                }
+            }
+
             AddressingMode::AbsoluteIndexedX => {
                 let base = self.read_address(AddressingMode::Absolute, memory);
                 let addr = base + (self.x & 0xFFFF) as u32;
@@ -851,6 +947,16 @@ impl Cpu {
             AddressingMode::AbsoluteIndexedY => {
                 let base = self.read_address(AddressingMode::Absolute, memory);
                 let addr = base + (self.y & 0xFFFF) as u32;
+
+                memory.write(addr, value as u8);
+                if !is_8bit {
+                    memory.write(addr + 1, (value >> 8) as u8);
+                }
+            }
+
+            AddressingMode::AbsoluteLongIndexedX => {
+                let base = self.read_address(AddressingMode::AbsoluteLong, memory);
+                let addr = base + (self.x & 0xFFFF) as u32;
 
                 memory.write(addr, value as u8);
                 if !is_8bit {
@@ -902,6 +1008,14 @@ impl Cpu {
                 self.pc += 2;
                 (addr_high << 8) | addr_low
                 
+            }
+
+            AddressingMode::AbsoluteLong => {
+                let addr_low = memory.read(self.pc) as u32;
+                let addr_mid = memory.read(self.pc + 1) as u32;
+                let addr_high = memory.read(self.pc + 2) as u32;
+                self.pc += 3;
+                (addr_high << 16) | (addr_mid << 8) | addr_low
             }
 
             _ => {
@@ -1165,6 +1279,11 @@ impl Cpu {
             self.m_flag = (self.p & 0x20) != 0;
             self.x_flag = (self.p & 0x10) != 0;
         }
+    }
+
+    fn pull_stack(&mut self, memory: &mut Memory) -> u8  {
+        self.sp += 1;
+        memory.read(0x010000 | (self.sp as u32))
     }
 
     // ++++ Debugging ++++

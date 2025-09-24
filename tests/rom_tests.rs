@@ -361,7 +361,7 @@ fn test_rom_diagnosis() {
 
 #[test]
 fn test_super_mario_world() {
-    let result = execute_rom_test("Super.smc", 100); // Menos instruções para início
+    let result = execute_rom_test("Super.smc", 10000); // Menos instruções para início
     println!("\nResultado Super Mario World:");
     println!("Sucesso: {}", result.success);
     println!("Instruções executadas: {}", result.instructions_executed);
