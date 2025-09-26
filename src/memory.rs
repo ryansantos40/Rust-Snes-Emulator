@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use crate::ppu::Ppu;
 
 pub struct Memory {
     pub wram: [u8; 0x20000], // 128KB WRAM
@@ -198,7 +199,7 @@ impl Memory{
         }
     }
 
-    pub fn write(&mut self, addr: u32, value: u8) {
+    pub fn write(&mut self, addr: u32, value: u8, ppu: &mut Ppu) {
         let bank = (addr >> 16) as u8;
         let offset = (addr & 0xFFFF) as u16;
 
@@ -208,7 +209,7 @@ impl Memory{
                     //WRAM mirror
                     0x0000..=0x1FFF => self.wram[offset as usize] = value,
                     0x2000..=0x20FF => self.wram[offset as usize] = value,
-                    0x2100..=0x21FF => self.write_ppu_registers(offset, value),
+                    0x2100..=0x21FF => self.write_ppu_registers(offset, value, ppu),
                     0x2200..=0x3FFF => self.wram[offset as usize] = value,
                     0x4000..=0x4015 => self.write_apu_registers(offset, value),
                     0x4016..=0x4017 => { self.registers.insert(offset, value); }, // Input
@@ -259,69 +260,118 @@ impl Memory{
         }
     }
 
-    fn read_ppu_registers(&self, addr: u16) -> u8 {
+    fn read_ppu_registers(&self, addr: u16, ppu: &mut Ppu) -> u8 {
         match addr {
-            0x2134..=0x2136 => self.registers.get(&addr).copied().unwrap_or(0), // VRAM read
-            0x2137 => 0, // SLHV
-            0x2138 => 0, // OAM READ
-            0x2139 => 0, // VRAM low read
-            0x213A => 0, // VRAM high read
-            0x213B => 0, // CGRAM read
-            0x213C => 0, // H/V counter
-            0x213D => 0, // ppu status
-            0x213E => 0, // ppu status
-            0x213F => 0, // ppu status
+            0x2137 => ppu.read_register(addr),
+            0x213E => ppu.read_register(addr),
+            0x213F => ppu.read_register(addr),
+
+            0x2139 => {
+                let vram_addr = ppu.vram_addr;
+                if (vram_addr as usize) < self.vram.len() {
+                    let value = self.vram[vram_addr as usize];
+                    ppu.vram_addr = ppu.vram_addr.wrapping_add(ppu.vram_increment);
+                    value
+                } else {
+                    0
+                }
+            }
+
+            0x2138 => {
+                let oam_addr = ppu.oam_addr;
+                if (oam_addr as usize) < self.oam.len() {
+                    let value = self.oam[oam_addr as usize];
+                    ppu.oam_addr = ppu.oam_addr.wrapping_add(1);
+                    value
+                } else {
+                    0
+                }
+            }
+            
             _ => self.registers.get(&addr).copied().unwrap_or(0), // Outros registradores PPU
         }
     }
 
-    fn write_ppu_registers(&mut self, addr: u16, value: u8) {
+    fn write_ppu_registers(&mut self, addr: u16, value: u8, ppu: &mut Ppu) {
         match addr {
-            // VRAM access
-            0x2116 => { // VRAM address low
-                self.registers.insert(0x2116, value);
+            0x2100 => ppu.write_register(addr, value),
+            0x2101 => ppu.write_register(addr, value),
+            0x2105 => ppu.write_register(addr, value),
+            0x212C => ppu.write_register(addr, value),
+            0x4200 => ppu.write_register(addr, value),
+
+            0x2116 => {
+                self.registers.insert(addr, value);
+                ppu.vram_addr = (ppu.vram_addr & 0xFF00) | (value as u16);
             }
-            0x2117 => { // VRAM address high
-                self.registers.insert(0x2117, value);
+
+            0x2117 => {
+                self.registers.insert(addr, value);
+                ppu.vram_addr = (ppu.vram_addr & 0xFF00) | ((value as u16) << 8);
             }
-            0x2118 => { // VRAM data write low
-                let addr_low = self.registers.get(&0x2116).copied().unwrap_or(0);
-                let addr_high = self.registers.get(&0x2117).copied().unwrap_or(0);
-                let vram_addr = ((addr_high as u16) << 8) | (addr_low as u16);
-                if (vram_addr as usize) < self.vram.len() {
+
+            0x2118 => {
+                let vram_addr = ppu.vram_addr;
+                if (vram_addr as usize) < self.vram.len(){
                     self.vram[vram_addr as usize] = value;
                 }
+                ppu.vram_addr = ppu.vram_addr.wrapping_add(ppu.vram_increment);
             }
-            0x2119 => { // VRAM data write high
-                let addr_low = self.registers.get(&0x2116).copied().unwrap_or(0);
-                let addr_high = self.registers.get(&0x2117).copied().unwrap_or(0);
-                let vram_addr = ((addr_high as u16) << 8) | (addr_low as u16);
-                if (vram_addr as usize + 1) < self.vram.len() {
+
+            0x2119 => {
+                let vram_addr = ppu.vram_addr;
+                if (vram_addr as usize) < self.vram.len(){
                     self.vram[vram_addr as usize + 1] = value;
                 }
+                ppu.vram_addr = ppu.vram_addr.wrapping_add(ppu.vram_increment);
             }
-            
-            // OAM access
-            0x2102 => { self.registers.insert(addr, value); }, // OAM address low
-            0x2103 => { self.registers.insert(addr, value); }, // OAM address high
-            0x2104 => { // OAM data write
-                let addr_low = self.registers.get(&0x2102).copied().unwrap_or(0);
-                let addr_high = self.registers.get(&0x2103).copied().unwrap_or(0);
-                let oam_addr = ((addr_high as u16) << 8) | (addr_low as u16);
+
+            0x2102 => {
+                self.registers.insert(0x2102, value);
+                ppu.oam_addr = (ppu.oam_addr & 0xFF00) | (value as u16);
+            }
+
+            0x2103 => {
+                self.registers.insert(0x2103, value);
+                ppu.oam_addr = (ppu.oam_addr & 0x00FF) | ((value as u16) << 8);
+            }
+
+            0x2104 => {
+                let oam_addr = ppu.oam_addr;
                 if (oam_addr as usize) < self.oam.len() {
                     self.oam[oam_addr as usize] = value;
                 }
+                ppu.oam_addr = ppu.oam_addr.wrapping_add(1);
             }
-            
-            // CGRAM access
-            0x2121 => { self.registers.insert(addr, value); }, // CGRAM address
-            0x2122 => { // CGRAM data write
-                let cgram_addr = self.registers.get(&0x2121).copied().unwrap_or(0);
+
+            0x2121 => {
+                ppu.cgram_addr = value as u16;
+            }
+
+            0x2122 => {
+                let cgram_addr = ppu.cgram_addr;
                 if (cgram_addr as usize) < self.cgram.len() {
                     self.cgram[cgram_addr as usize] = value;
                 }
+                ppu.cgram_addr = ppu.cgram_addr.wrapping_add(1);
             }
-            
+
+            0x210D => {
+                ppu.bg_hscroll[0] = (ppu.bg_hscroll[0] & 0xFF00) | (value as u16);
+            }
+
+            0x210E => {
+                ppu.bg_vscroll[0] = (ppu.bg_vscroll[0] & 0xFF00) | (value as u16);
+            }
+
+            0x210F => {
+                ppu.bg_hscroll[1] = (ppu.bg_hscroll[1] & 0xFF00) | (value as u16);
+            }
+
+            0x2110 => {
+                ppu.bg_vscroll[1] = (ppu.bg_vscroll[1] & 0xFF00) | (value as u16);
+            }
+
             _ => { self.registers.insert(addr, value); }
         }
     }
