@@ -47,6 +47,18 @@ pub struct Ppu {
 
     pub nmi_enabled: bool,
     pub nmi_flag: bool,
+
+    pub inidisp: u8,
+    pub obsel: u8,
+    pub oamaddl: u8,
+    pub oamaddh: u8,
+    pub oamdata: u8,
+
+    pub bg_mode_reg: u8,
+    pub mosaic: u8,
+
+    pub vmain: u8,
+    pub vmadd: u8,
 }
 
 impl Ppu {

@@ -80,7 +80,7 @@ impl Cpu {
     pub fn step_with_ppu(&mut self, memory: &mut Memory, ppu: &mut Ppu) -> u8{
         let cycles = self.step(memory);
         
-        for _ in 0..cycles {
+        for _ in 0..(cycles * 4){
             let nmi_triggered = ppu.step(memory);
 
             if nmi_triggered && !self.get_flag(Self::FLAG_IRQ) {
