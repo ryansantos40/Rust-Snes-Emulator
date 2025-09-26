@@ -4,6 +4,7 @@ use std::io::Read;
 mod cpu;
 mod memory;
 mod opcodes;
+mod ppu;
 
 fn main (){
     println!("Iniciando emulador SNES...");
@@ -11,6 +12,7 @@ fn main (){
     let test_rom = create_test_rom();
     let mut memory = memory::Memory::new(test_rom);
     let mut cpu = cpu::Cpu::new();
+    let mut ppu = ppu::Ppu::new(); // ← NOVA LINHA: Criar PPU
 
     println!("ROM Carregada: {}", memory.get_rom_title());
     println!("Tipo de ROM: {:?}", memory.rom_type);
@@ -20,9 +22,16 @@ fn main (){
     println!("Executando alguns ciclos do CPU...");
     for i in 0..10 {
         let old_state = cpu.get_register_state();
-        let cycles = cpu.step(&mut memory);
-
+        
+        // MUDANÇA PRINCIPAL: Usar step_with_ppu em vez de step
+        let cycles = cpu.step_with_ppu(&mut memory, &mut ppu); // ← LINHA MODIFICADA
+        
         println!("Instrução {}: {} ({}c) -> {}", i+1, old_state, cycles, cpu.get_register_state());
+        
+        // NOVA FUNCIONALIDADE: Verificar se frame está pronto
+        if ppu.frame_ready() {
+            println!("Frame PPU pronto! Scanline: {}, Cycle: {}", ppu.scanline, ppu.cycle);
+        }
     }
 
     println!("Emulador SNES finalizado.");

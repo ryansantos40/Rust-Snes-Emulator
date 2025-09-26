@@ -14,3 +14,4 @@ path = "src/main.rs"
 [dependencies]
 byteorder = "1.4"
 bitflags = "2.0"
+minifb = "0.23"

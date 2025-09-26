@@ -1,4 +1,5 @@
 use crate::memory::Memory;
+use crate::ppu::Ppu;
 use crate::opcodes::{get_opcode_info, Operation, AddressingMode, FLAG_CARRY, FLAG_ZERO, FLAG_IRQ, FLAG_DECIMAL, FLAG_OVERFLOW, FLAG_NEGATIVE};
 
 pub struct Cpu {
@@ -74,6 +75,38 @@ impl Cpu {
         let cycles = self.execute_instruction(opcode, memory);
         self.cycles += cycles as u64;
         cycles
+    }
+
+    pub fn step_with_ppu(&mut self, memory: &mut Memory, ppu: &mut Ppu) -> u8{
+        let cycles = self.step(memory);
+        
+        for _ in 0..cycles {
+            let nmi_triggered = ppu.step(memory);
+
+            if nmi_triggered && !self.get_flag(Self::FLAG_IRQ) {
+                self.handle_nmi(memory);
+            }
+        }
+
+        cycles
+    }
+
+    fn handle_nmi(&mut self, memory: &mut Memory) {
+        let pc_bank = (self.pc >> 16) as u8;
+        let pc_high = ((self.pc >> 8) & 0xFF) as u8;
+        let pc_low = self.pc as u8;
+
+        self.push_byte(memory, pc_bank);
+        self.push_byte(memory, pc_high);
+        self.push_byte(memory, pc_low);
+        self.push_byte(memory, self.p);
+
+        let nmi_vector = if self.e_flag { 0xFFFA } else { 0x00FFFA };
+        let nmi_low = memory.read(nmi_vector) as u32;
+        let nmi_high = memory.read(nmi_vector + 1) as u32;
+        self.pc = (nmi_high << 8) | nmi_low;
+
+        self.set_flag(Self::FLAG_IRQ);
     }
 
     fn execute_instruction(&mut self, opcode: u8, memory: &mut Memory) -> u8 {
