@@ -96,6 +96,16 @@ impl Ppu {
 
             nmi_enabled: false,
             nmi_flag: false,
+
+            inidisp: 0x80,
+            obsel: 0,
+            oamaddl: 0,
+            oamaddh: 0,
+            oamdata: 0,
+            bg_mode_reg: 0,
+            mosaic: 0,
+            vmain: 0,
+            vmadd: 0,
         }
     }
 

@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::rc::Rc;
+use std::cell::RefCell;
 use crate::ppu::Ppu;
 
 pub struct Memory {
@@ -11,6 +13,8 @@ pub struct Memory {
     pub registers: HashMap<u16, u8>, // Registradores(To-DO)
     pub rom_type: RomType, // Tipo de mapeamento (LoRom, HiRom)
     pub sram_size: usize, // Tamanho do SRAM
+
+    ppu: Rc<RefCell<Ppu>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -20,7 +24,7 @@ pub enum RomType {
 }
 
 impl Memory{
-    pub fn new(rom: Vec<u8>) -> Self {
+    pub fn new(rom: Vec<u8>, ppu: Rc<RefCell<Ppu>>) -> Self {
         let rom_type = Self::detect_rom_type(&rom);
         let sram_size = Self::detect_sram_size(&rom);
 
@@ -34,6 +38,7 @@ impl Memory{
             registers: HashMap::new(),
             rom_type,
             sram_size,
+            ppu,
         }
     }
 
@@ -199,7 +204,7 @@ impl Memory{
         }
     }
 
-    pub fn write(&mut self, addr: u32, value: u8, ppu: &mut Ppu) {
+    pub fn write(&mut self, addr: u32, value: u8) {
         let bank = (addr >> 16) as u8;
         let offset = (addr & 0xFFFF) as u16;
 
@@ -209,7 +214,7 @@ impl Memory{
                     //WRAM mirror
                     0x0000..=0x1FFF => self.wram[offset as usize] = value,
                     0x2000..=0x20FF => self.wram[offset as usize] = value,
-                    0x2100..=0x21FF => self.write_ppu_registers(offset, value, ppu),
+                    0x2100..=0x21FF => self.write_ppu_registers(offset, value),
                     0x2200..=0x3FFF => self.wram[offset as usize] = value,
                     0x4000..=0x4015 => self.write_apu_registers(offset, value),
                     0x4016..=0x4017 => { self.registers.insert(offset, value); }, // Input
@@ -260,7 +265,9 @@ impl Memory{
         }
     }
 
-    fn read_ppu_registers(&self, addr: u16, ppu: &mut Ppu) -> u8 {
+    fn read_ppu_registers(&self, addr: u16) -> u8 {
+        let mut ppu = self.ppu.borrow_mut();
+
         match addr {
             0x2137 => ppu.read_register(addr),
             0x213E => ppu.read_register(addr),
@@ -292,7 +299,9 @@ impl Memory{
         }
     }
 
-    fn write_ppu_registers(&mut self, addr: u16, value: u8, ppu: &mut Ppu) {
+    fn write_ppu_registers(&mut self, addr: u16, value: u8) {
+        let mut ppu = self.ppu.borrow_mut();
+
         match addr {
             0x2100 => ppu.write_register(addr, value),
             0x2101 => ppu.write_register(addr, value),
@@ -307,7 +316,7 @@ impl Memory{
 
             0x2117 => {
                 self.registers.insert(addr, value);
-                ppu.vram_addr = (ppu.vram_addr & 0xFF00) | ((value as u16) << 8);
+                ppu.vram_addr = (ppu.vram_addr & 0x00FF) | ((value as u16) << 8);
             }
 
             0x2118 => {
@@ -321,7 +330,7 @@ impl Memory{
             0x2119 => {
                 let vram_addr = ppu.vram_addr;
                 if (vram_addr as usize) < self.vram.len(){
-                    self.vram[vram_addr as usize + 1] = value;
+                    self.vram[(vram_addr + 1) as usize ] = value;
                 }
                 ppu.vram_addr = ppu.vram_addr.wrapping_add(ppu.vram_increment);
             }

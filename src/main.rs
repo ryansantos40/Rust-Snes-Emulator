@@ -1,41 +1,48 @@
 use std::fs;
 use std::io::Read;
+use system::System;
 
 mod cpu;
 mod memory;
 mod opcodes;
 mod ppu;
+mod system;
 
 fn main (){
     println!("Iniciando emulador SNES...");
 
     let test_rom = create_test_rom();
-    let mut memory = memory::Memory::new(test_rom);
-    let mut cpu = cpu::Cpu::new();
-    let mut ppu = ppu::Ppu::new(); // ← NOVA LINHA: Criar PPU
+    let mut system = System::new(test_rom);
 
-    println!("ROM Carregada: {}", memory.get_rom_title());
-    println!("Tipo de ROM: {:?}", memory.rom_type);
-    println!("Tamanho SRAM: {} bytes", memory.sram_size);
-    println!("Estado inicial do CPU: {}", cpu.get_register_state());
+    println!("ROM Carregada: {}", system.memory.get_rom_title());
+    println!("Tipo de ROM: {:?}", system.memory.rom_type);
+    println!("Tamanho SRAM: {} bytes", system.memory.sram_size);
+    println!("Estado inicial do CPU: {}", system.cpu.get_register_state());
+    println!("Estado inicial da PPU: Scanline {}, Cycle {}", system.get_scanline(), system.get_ppu().cycle);
 
     println!("Executando alguns ciclos do CPU...");
     for i in 0..10 {
-        let old_state = cpu.get_register_state();
+        let old_state = system.get_cpu_state();
         
-        // MUDANÇA PRINCIPAL: Usar step_with_ppu em vez de step
-        let cycles = cpu.step_with_ppu(&mut memory, &mut ppu); // ← LINHA MODIFICADA
+        let cycles = system.step();
         
-        println!("Instrução {}: {} ({}c) -> {}", i+1, old_state, cycles, cpu.get_register_state());
+        println!("Instrução {}: {} ({}c) -> {}", i+1, old_state, cycles, system.get_cpu_state());
         
-        // NOVA FUNCIONALIDADE: Verificar se frame está pronto
-        if ppu.frame_ready() {
-            println!("Frame PPU pronto! Scanline: {}, Cycle: {}", ppu.scanline, ppu.cycle);
+        if system.frame_ready() {
+            println!("  └─ Frame PPU pronto! Scanline: {}, Cycle: {}", 
+                     system.get_scanline(), 
+                     system.get_ppu().cycle);
+        }
+        
+        if system.is_vblank() {
+            println!("  └─ PPU em VBlank!");
         }
     }
 
+    println!("\n=== Estatísticas Finais ===");
+    println!("Total de ciclos executados: {}", system.cpu.cycles);
+    println!("PPU - Scanline: {}, Cycle: {}", system.get_scanline(), system.get_ppu().cycle);
     println!("Emulador SNES finalizado.");
-    println!("Total de ciclos executados: {}", cpu.cycles);
 }
 
 fn create_test_rom() -> Vec<u8> {

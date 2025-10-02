@@ -1,5 +1,4 @@
 use crate::memory::Memory;
-use crate::ppu::Ppu;
 use crate::opcodes::{get_opcode_info, Operation, AddressingMode, FLAG_CARRY, FLAG_ZERO, FLAG_IRQ, FLAG_DECIMAL, FLAG_OVERFLOW, FLAG_NEGATIVE};
 
 pub struct Cpu {
@@ -77,21 +76,7 @@ impl Cpu {
         cycles
     }
 
-    pub fn step_with_ppu(&mut self, memory: &mut Memory, ppu: &mut Ppu) -> u8{
-        let cycles = self.step(memory);
-        
-        for _ in 0..(cycles * 4){
-            let nmi_triggered = ppu.step(memory);
-
-            if nmi_triggered && !self.get_flag(Self::FLAG_IRQ) {
-                self.handle_nmi(memory);
-            }
-        }
-
-        cycles
-    }
-
-    fn handle_nmi(&mut self, memory: &mut Memory) {
+    pub fn handle_nmi(&mut self, memory: &mut Memory) {
         let pc_bank = (self.pc >> 16) as u8;
         let pc_high = ((self.pc >> 8) & 0xFF) as u8;
         let pc_low = self.pc as u8;
@@ -109,7 +94,7 @@ impl Cpu {
         self.set_flag(Self::FLAG_IRQ);
     }
 
-    fn execute_instruction(&mut self, opcode: u8, memory: &mut Memory) -> u8 {
+    pub fn execute_instruction(&mut self, opcode: u8, memory: &mut Memory) -> u8 {
         match get_opcode_info(opcode){
             Some(info) => {
                 self.execute_operation(info.operation, info.mode, memory);
