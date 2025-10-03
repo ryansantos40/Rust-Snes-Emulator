@@ -103,6 +103,7 @@ impl Memory{
                     0x4016..=0x4017 => self.registers.get(&offset).copied().unwrap_or(0), // Input
                     0x4018..=0x401F => self.read_apu_registers(offset),
                     0x4020..=0x41FF => self.read_apu_registers(offset),
+                    0x4210..=0x4212 => self.read_ppu_registers(offset),
                     0x4200..=0x44FF => self.read_dma_registers(offset),
                     0x4500..=0x5FFF => self.wram[offset as usize],
                     0x6000..=0x7FFF => { // SRAM Area para LoRom
@@ -156,6 +157,7 @@ impl Memory{
                     0x4016..=0x4017 => self.registers.get(&offset).copied().unwrap_or(0), // Input
                     0x4018..=0x401F => self.read_apu_registers(offset),
                     0x4020..=0x41FF => self.read_apu_registers(offset),
+                    0x4210..=0x4212 => self.read_ppu_registers(offset),
                     0x4200..=0x44FF => self.read_dma_registers(offset),
                     0x4500..=0x5FFF => self.wram[offset as usize],
                     0x6000..=0x7FFF => { // SRAM Area para LoRom
@@ -269,20 +271,9 @@ impl Memory{
         let mut ppu = self.ppu.borrow_mut();
 
         match addr {
-            0x2137 => ppu.read_register(addr),
-            0x213E => ppu.read_register(addr),
-            0x213F => ppu.read_register(addr),
-
-            0x2139 => {
-                let vram_addr = ppu.vram_addr;
-                if (vram_addr as usize) < self.vram.len() {
-                    let value = self.vram[vram_addr as usize];
-                    ppu.vram_addr = ppu.vram_addr.wrapping_add(ppu.vram_increment);
-                    value
-                } else {
-                    0
-                }
-            }
+            0x213C | 0x213D | 0x213E | 0x213F | 0x4210 | 0x4211 |0x4212 => {
+                ppu.read_register(addr)
+            } 
 
             0x2138 => {
                 let oam_addr = ppu.oam_addr;
@@ -293,6 +284,76 @@ impl Memory{
                 } else {
                     0
                 }
+            }
+
+            0x2139 => {
+                let value = (ppu.vram_read_buffer & 0xFF) as u8;
+
+                if (ppu.vmain & 0x80) == 0 {
+                    let vram_addr = ppu.vram_addr as usize;
+                    if vram_addr * 2 + 1 < self.vram.len() {
+                        ppu.vram_read_buffer = (self.vram[vram_addr * 2 + 1] as u16) << 8 |
+                                                (self.vram[vram_addr * 2] as u16);
+                    }
+                    ppu.vram_addr = ppu.vram_addr.wrapping_add(ppu.vram_increment);
+                }
+
+                value
+            }
+
+            0x213A => {
+                let value = (ppu.vram_read_buffer >> 8) as u8;
+                
+                if (ppu.vmain & 0x80) != 0 {
+                    let vram_addr = ppu.vram_addr as usize;
+                    if vram_addr * 2 + 1 < self.vram.len() {
+                        ppu.vram_read_buffer = (self.vram[vram_addr * 2 + 1] as u16) << 8 |
+                                                (self.vram[vram_addr * 2] as u16);
+                    }
+                    ppu.vram_addr = ppu.vram_addr.wrapping_add(ppu.vram_increment);
+                }
+
+                value
+            }
+
+            0x213B => {
+                let cgram_addr = ppu.cgram_addr as usize;
+                if cgram_addr < self.cgram.len() {
+                    let value = self.cgram[cgram_addr as usize];
+                    ppu.cgram_addr = (ppu.cgram_addr + 1) & 0x1FF;
+                    value
+                } else {
+                    0
+                }
+            }
+
+            0x2134 | 0x2135 | 0x2136 => {
+                ppu.open_bus
+            }
+
+            0x2140..=0x2143 => {
+                self.registers.get(&addr).copied().unwrap_or(0) // APU Ports - Placeholder
+            }
+
+            0x2180 => {
+                let wram_addr = self.registers.get(&0x2181).copied().unwrap_or(0) as usize |
+                                (self.registers.get(&0x2182).copied().unwrap_or(0) as usize) << 8 |
+                                ((self.registers.get(&0x2183).copied().unwrap_or(0) as usize) & 0x01) << 16;
+
+                if wram_addr < self.wram.len() {
+                    self.wram[wram_addr]
+
+                } else {
+                    0
+                }
+            }
+
+            0x2181..=0x2183 => {
+                self.registers.get(&addr).copied().unwrap_or(0)
+            }
+
+            0x2100..=0x21FF => {
+                ppu.open_bus //placeholder
             }
             
             _ => self.registers.get(&addr).copied().unwrap_or(0), // Outros registradores PPU
@@ -379,6 +440,33 @@ impl Memory{
 
             0x2110 => {
                 ppu.bg_vscroll[1] = (ppu.bg_vscroll[1] & 0xFF00) | (value as u16);
+            }
+
+            0x2140..=0x2143 => {
+                self.registers.insert(addr, value); // APU Ports - Placeholder
+            }
+
+            0x2180 => {
+                let wram_addr = self.registers.get(&0x2181).copied().unwrap_or(0) as usize |
+                                (self.registers.get(&0x2182).copied().unwrap_or(0) as usize) << 8 |
+                                ((self.registers.get(&0x2183).copied().unwrap_or(0) as usize) & 0x01) << 16;
+
+                if wram_addr < self.wram.len() {
+                    self.wram[wram_addr] = value;
+                }
+
+                let new_addr = (wram_addr + 1) & 0x1FFFF;
+                self.registers.insert(0x2181, (new_addr & 0xFF) as u8);
+                self.registers.insert(0x2182, ((new_addr >> 8) & 0xFF) as u8);
+                self.registers.insert(0x2183, ((new_addr >> 16) & 0x01) as u8);
+            }
+
+            0x2181..=0x2182 => {
+                self.registers.insert(addr, value);
+            }
+
+            0x2183 => {
+                self.registers.insert(addr, value & 0x01);
             }
 
             _ => { self.registers.insert(addr, value); }

@@ -69,8 +69,17 @@ fn main() {
              system.is_vblank());
     
     // Mostra vetores de interrupção
-    let brk_vector = (system.memory.read(0x00FFE7) as u16) << 8 | system.memory.read(0x00FFE6) as u16;
-    let nmi_vector = (system.memory.read(0x00FFEB) as u16) << 8 | system.memory.read(0x00FFEA) as u16;
+    let brk_vector = {
+        let low = system.memory.read(0x00FFE6) as u16;
+        let high = system.memory.read(0x00FFE7) as u16;
+        (high << 8) | low
+    };
+    
+    let nmi_vector = {
+        let low = system.memory.read(0x00FFEA) as u16;
+        let high = system.memory.read(0x00FFEB) as u16;
+        (high << 8) | low
+    };
     println!("\n=== VETORES DE INTERRUPÇÃO ===");
     println!("BRK Vector: ${:04X}", brk_vector);
     println!("NMI Vector: ${:04X}", nmi_vector);

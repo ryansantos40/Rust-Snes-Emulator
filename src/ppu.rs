@@ -406,68 +406,61 @@ impl Ppu {
 
     pub fn read_register(&mut self, addr: u16) -> u8 {
         match addr {
-            0x2134 => {
-                self.open_bus
-            }
-
-            0x2135 => {
-                self.open_bus
-            }
-
-            0x2136 => {
-                self.open_bus
-            }
 
             0x2137 => {
-                0
+                0 //placeholder
             }
 
-            0x2138 => {
-                let oam_addr = self.oam_addr as usize;
-                let value = if oam_addr < memory.oam.len() {
-                    memory.oam[oam_addr]
-                } else {
-                    0
-                };
-
-                self.oam_addr = (self.oam_addr + 1) & 0x1FF;
-                value
+            0x213C => {
+                (self.cycle & 0xFF) as u8
             }
 
-            0x2139 => {
-                let value = (self.vram_read_buffer & 0xFF) as u8;
-
-                if (self.vmain & 0x80) == 0 {
-                    let vram_addr = self.vram_addr as usize;
-                    if vram_addr * 2 + 1 < memory.vram.len() {
-                        self.vram_read_buffer = (memory.vram[vram_addr * 2 + 1] as u16) << 8 |
-                                                (memory.vram[vram_addr * 2] as u16);
-                    }
-
-                    self.vram_addr = self.vram_addr.wrapping_add(self.vram_increment);
-                }
-
-                value
-            }
-
-            0x213A => {
-                
+            0x213D => {
+                (self.scanline & 0xFF) as u8
             }
 
             0x213E => {
-                let mut status = 0;
+                let mut status = 0x01;
                 if self.vblank { status |= 0x80; }
                 if self.hblank { status |= 0x40; }
                 status
             }
 
             0x213F => {
-                let mut status = 0;
+                let mut status = 0x03;
                 if self.nmi_flag { status |= 0x80; }
+                self.nmi_flag = false;
                 status
             }
 
-            _ => 0
+            0x4210 => {
+                let mut value = 0x02;
+
+                if self.nmi_enabled { value |= 0x80; }
+
+                self.nmi_flag = false;
+
+                value
+            }
+
+            0x4211 => {
+                0 //placeholder
+            }
+
+            0x4212 => {
+                let mut status = 0;
+
+                if self.vblank { status |= 0x80; }
+                if self.hblank { status |= 0x40; }
+
+
+                status
+            }
+
+            _ => {
+                //placeholder
+                self.open_bus
+            }
         }
     }
 
