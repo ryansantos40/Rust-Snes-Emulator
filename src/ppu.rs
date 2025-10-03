@@ -59,6 +59,9 @@ pub struct Ppu {
 
     pub vmain: u8,
     pub vmadd: u8,
+
+    pub vram_read_buffer: u16,
+    pub open_bus: u8,
 }
 
 impl Ppu {
@@ -106,6 +109,9 @@ impl Ppu {
             mosaic: 0,
             vmain: 0,
             vmadd: 0,
+
+            vram_read_buffer: 0,
+            open_bus: 0,
         }
     }
 
@@ -359,6 +365,29 @@ impl Ppu {
                 self.bg_size[3] = (value & 0x80) != 0;
             }
 
+            0x2115 => {
+                self.vmain = value;
+                self.vram_increment = match value & 0x03 {
+                    0 => 1,
+                    1 => 32,
+                    2 => 128,
+                    3 => 128,
+                    _ => 1,
+                };
+            }
+
+            0x2116 => {
+                self.vram_addr = (self.vram_addr & 0xFF00) | (value as u16);
+            }
+
+            0x2117 => {
+                self.vram_addr = (self.vram_addr & 0x00FF) | ((value as u16) << 8);
+            }
+
+            0x2121 => {
+                self.cgram_addr = (value as u16) & 0x1FF;
+            }
+
             0x212C => {
                 self.bg_enabled[0] = (value & 0x01) != 0;
                 self.bg_enabled[1] = (value & 0x02) != 0;
@@ -377,8 +406,52 @@ impl Ppu {
 
     pub fn read_register(&mut self, addr: u16) -> u8 {
         match addr {
+            0x2134 => {
+                self.open_bus
+            }
+
+            0x2135 => {
+                self.open_bus
+            }
+
+            0x2136 => {
+                self.open_bus
+            }
+
             0x2137 => {
                 0
+            }
+
+            0x2138 => {
+                let oam_addr = self.oam_addr as usize;
+                let value = if oam_addr < memory.oam.len() {
+                    memory.oam[oam_addr]
+                } else {
+                    0
+                };
+
+                self.oam_addr = (self.oam_addr + 1) & 0x1FF;
+                value
+            }
+
+            0x2139 => {
+                let value = (self.vram_read_buffer & 0xFF) as u8;
+
+                if (self.vmain & 0x80) == 0 {
+                    let vram_addr = self.vram_addr as usize;
+                    if vram_addr * 2 + 1 < memory.vram.len() {
+                        self.vram_read_buffer = (memory.vram[vram_addr * 2 + 1] as u16) << 8 |
+                                                (memory.vram[vram_addr * 2] as u16);
+                    }
+
+                    self.vram_addr = self.vram_addr.wrapping_add(self.vram_increment);
+                }
+
+                value
+            }
+
+            0x213A => {
+                
             }
 
             0x213E => {
