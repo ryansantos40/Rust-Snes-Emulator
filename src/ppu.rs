@@ -1,4 +1,5 @@
 use crate::memory::Memory;
+use crate::ppu_registers::*;
 
 #[derive(Debug, Clone, Copy)]
 pub enum VideoMode {
@@ -57,6 +58,27 @@ pub struct Ppu {
     pub bg_mode_reg: u8,
     pub mosaic: u8,
 
+    pub bg_tilemap_addr: [u16; 4],
+    pub bg_tiledata_addr: [u16; 4],
+
+    pub mode7_settings: u8,
+    pub mode7_matrix: [i16; 4],
+    pub mode7_center: [i16; 2],
+
+    pub window_settings: [u8; 3],
+    pub window_positions: [u8; 4],
+    pub window_logic: [u8; 2],
+
+    pub main_screen_enabled: u8,
+    pub sub_screen_enabled: u8,
+    pub main_window_mask: u8,
+    pub sub_window_mask: u8,
+
+    pub color_math_control_a: u8,
+    pub color_math_control_b: u8,
+    pub fixed_color_data: u8,
+    pub screen_mode: u8,
+
     pub vmain: u8,
     pub vmadd: u8,
 
@@ -107,6 +129,28 @@ impl Ppu {
             oamdata: 0,
             bg_mode_reg: 0,
             mosaic: 0,
+
+            bg_tilemap_addr: [0; 4],
+            bg_char_addr: [0; 4],
+            
+            mode7_settings: 0,
+            mode7_matrix: [0; 4],
+            mode7_center: [0; 2],
+            
+            window_settings: [0; 3],
+            window_positions: [0; 4],
+            window_logic: [0; 2],
+            
+            main_screen_enabled: 0,
+            sub_screen_enabled: 0,
+            main_window_mask: 0,
+            sub_window_mask: 0,
+            
+            color_math_control_a: 0,
+            color_math_control_b: 0,
+            fixed_color_data: 0,
+            screen_mode: 0,
+
             vmain: 0,
             vmadd: 0,
 
@@ -177,6 +221,20 @@ impl Ppu {
                 }
             }
 
+            VideoMode::Mode1 => {
+                if self.bg_enabled[2] {
+                    self.render_bg_mode1_2bpp(memory, 2);
+                }
+
+                if self.bg_enabled[0] {
+                    self.render_bg_mode1_4bpp(memory, 0);
+                }
+
+                if self.bg_enabled[1] {
+                    self.render_bg_mode1_4bpp(memory, 1);
+                }
+            }
+
             _ => {
                 // Other modes not implemented yet
             }
@@ -191,7 +249,7 @@ impl Ppu {
             let rgb_color = self.get_color_from_cgram(memory, color_index);
             let fb_index = (self.scanline as usize) * 256 + x;
             if fb_index < self.framebuffer.len() {
-                self.framebuffer[fb_index] = rgb_color;
+                self.framebuffer[fb_index] = self.apply_brightness(rgb_color);
             }
         }
     }
@@ -200,34 +258,230 @@ impl Ppu {
         let scroll_x = self.bg_hscroll[bg_layer];
         let scroll_y = self.bg_vscroll[bg_layer];
 
-        let y_pos = (self.scanline as u16 + scroll_y) % 256;
+        let y_pos = (self.scanline as u16 + scroll_y) & 0x1FF;
         let tile_y = y_pos / 8;
         let pixel_y = y_pos % 8;
 
-        for tile_x in 0..32 {
-            let x_pos = (tile_x * 8 + scroll_x) % 256;
+        let tilemap_width = if self.bg_size[bg_layer] { 64 } else { 32 };
 
-            let tile_index = self.get_bg_tile_index(memory, bg_layer, tile_x as u16, tile_y);
-            let tile_data = self.get_tile_data(memory, tile_index, pixel_y);
+        for tile_x_screen in 0..33 {
+            let x_pos = (tile_x_screen * 8 + scroll_x) & 0x1FF;
+            let tile_x = (x_pos / 8) % tilemap_width;
 
+            let tile_info = self.get_bg_tile_index(memory, bg_layer, tile_x, tile_y);
+            let tile_number = tile_info & 0x03FF;
+            let palette = ((tile_info >> 10) & 0x07) as u8;
+            let flip_x = ((tile_info >> 14) & 0x01) != 0;
+            let flip_y = ((tile_info >> 15) & 0x01) != 0;
+
+            let actual_pixel_y = if flip_y { 7 - pixel_y } else { pixel_y };
+
+            let tile_data = self.get_tile_data_2bpp(memory, tile_number, actual_pixel_y);
+            
             for pixel_x in 0..8 {
-                let screen_x = ((x_pos + pixel_x) % 256) as usize;
-                
+                let screen_x = ((x_pos + pixel_x) & 0x1FF) as usize;
+
                 if screen_x < 256 {
-                    let color_index = (tile_data >> (pixel_x * 2)) & 0x03;
+                    let actual_pixel_x = if flip_x { 7 - pixel_x } else { pixel_x };
+                    let color_index = ((tile_data >> (actual_pixel_x * 2)) & 0x03) as u8;
+
                     if color_index != 0 {
-                        self.line_buffer[screen_x] = color_index as u8;
+                        let cgram_index = (bg_layer as u8 * 32) + (palette * 4) + color_index;
+                        self.line_buffer[screen_x] = cgram_index;
                     }
                 }
             }
         }
     }
 
+    fn render_bg_mode1_4bpp(&mut self, memory: &Memory, bg_layer: usize) {
+        let scroll_x = self.bg_hscroll[bg_layer];
+        let scroll_y = self.bg_vscroll[bg_layer];
+
+        let y_pos = (self.scanline as u16 + scroll_y) & 0x1FF;
+        let tile_y = y_pos / 8;
+        let pixel_y = y_pos % 8;
+
+        let tilemap_width = if self.bg_size[bg_layer] { 64 } else { 32 };
+
+        for tile_x_screen in 0..33 {
+            let x_pos = (tile_x_screen * 8 + scroll_x) & 0x1FF;
+            let tile_x = (x_pos / 8) % tilemap_width;
+
+            let tile_info = self.get_bg_tile_index(memory, bg_layer, tile_x, tile_y);
+            let tile_number = tile_info & 0x03FF;
+            let palette = ((tile_info >> 10) & 0x07) as u8;
+            let priority = ((tile_info >> 13) & 0x01) != 0;
+            let flip_x = ((tile_info >> 14) & 0x01) != 0;
+            let flip_y = ((tile_info >> 15) & 0x01) != 0;
+
+            let actual_pixel_y = if flip_y { 7 - pixel_y } else { pixel_y };
+
+            let tile_data = self.get_tile_data_4bpp(memory, tile_number, actual_pixel_y);
+
+            for pixel_x in 0..8 {
+                let screen_x = ((x_pos + pixel_x) & 0x1FF) as usize;
+
+                if screen_x < 256 {
+                    let actual_pixel_x = if flip_x { 7 - pixel_x } else { pixel_x };
+                    let color_index = ((tile_data >> (actual_pixel_x * 4)) & 0x0F) as u8;
+                    if color_index != 0 {
+                        let cgram_index = (palette * 16) + color_index;
+                        self.line_buffer[screen_x] = cgram_index;
+                    }
+                }
+            }
+
+        }
+    }
+
+    fn render_bg_mode1_2bpp(&mut self, memory: &Memory, bg_layer: usize) {
+        let scroll_x = self.bg_hscroll[bg_layer];
+        let scroll_y = self.bg_vscroll[bg_layer];
+
+        let y_pos = (self.scanline as u16 + scroll_y) & 0x1FF;
+        let tile_y = y_pos / 8;
+        let pixel_y = y_pos % 8;
+
+        let tilemap_width = if self.bg_size[bg_layer] { 64 } else { 32 };
+
+        for tile_x_screen in 0..33 {
+            let x_pos = (tile_x_screen * 8 + scroll_x) & 0x1FF;
+            let tile_x = (x_pos / 8) % tilemap_width;
+
+            let tile_info = self.get_bg_tile_index(memory, bg_layer, tile_x, tile_y);
+            let tile_number = tile_info & 0x03FF;
+            let palette = ((tile_info >> 10) & 0x07) as u8;
+            let flip_x = ((tile_info >> 14) & 0x01) != 0;
+            let flip_y = ((tile_info >> 15) & 0x01) != 0;
+
+            let actual_pixel_y = if flip_y { 7 - pixel_y } else { pixel_y };
+
+            let tile_data = self.get_tile_data(memory, tile_number, actual_pixel_y);
+
+            for pixel_x in 0..8 {
+                let screen_x = ((x_pos + pixel_x) & 0x1FF) as usize;
+
+                if screen_x < 256 {
+                    let actual_pixel_x = if flip_x { 7 - pixel_x } else { pixel_x };
+                    let color_index = ((tile_data >> (actual_pixel_x * 2)) & 0x03) as u8;
+
+                    if color_index != 0 {
+                        let cgram_index = 128 + (palette * 4) + color_index;
+                        self.line_buffer[screen_x] = cgram_index;
+                    }
+                }
+            }
+        }
+    }
+
+    fn get_bg_tile_info(&self, memory: &Memory, bg_layer: usize, tile_x: u16, tile_y: u16) -> u16 {
+        let tilemap_addr = self.bg_tilemap_addr[bg_layer] as usize;
+        let tilemap_width = if self.bg_size[bg_layer] { 64 } else { 32 };
+
+        let block_x = tile_x / 32;
+        let block_y = tile_y / 32;
+        let local_x = tile_x % 32;
+        let local_y = tile_y % 32;
+
+        let block_offset = match (block_x, block_y) {
+            (0, 0) => 0x0000,
+            (1, 0) => 0x0400,
+            (0, 1) => 0x0800,
+            (1, 1) => 0x0C00,
+            _ => 0x0000,
+        };
+
+        let tile_offset = (local_y * 32 + local_x) * 2;
+        let tile_addr = tilemap_addr + block_offset + tile_offset as usize;
+
+        if tile_addr + 1 < memory.vram.len() {
+            let low = memory.vram[tile_addr] as u16;
+            let high = memory.vram[tile_addr + 1] as u16;
+            (high << 8) | low
+
+        } else {
+            0
+        }
+    }
+
+    fn get_tile_data_4bpp(&self, memory: &Memory, bg_layer: usize, tile_number: u16, pixel_row: u16) -> u64 {
+        let char_base = self.bg_char_addr[bg_layer] as usize;
+
+        let tile_addr = char_base + (tile_number as usize * 32) + (pixel_row as usize * 2);
+
+        if tile_addr + 24 < memory.vram.len() {
+            let plane0 = memory.vram[tile_addr] as u64;
+            let plane1 = memory.vram[tile_addr + 1] as u64;
+            let plane2 = memory.vram[tile_addr + 16] as u64;
+            let plane3 = memory.vram[tile_addr + 17] as u64;
+
+            let mut pixel_data = 0u64;
+            for bit in 0..8 {
+                let color = ((plane0 >> bit) & 1) |
+                            ((plane1 >> bit) & 1) << 1 |
+                            ((plane2 >> bit) & 1) << 2 |
+                            ((plane3 >> bit) & 1) << 3;
+                pixel_data |= color << (bit * 4);
+            }
+            pixel_data
+
+        } else {
+            0
+        }
+    }
+
+    fn get_tile_data_2bpp(&self, memory: &Memory, bg_layer: usize, tile_number: u16, pixel_row: u16) -> u32 {
+        let char_base = self.bg_char_addr[bg_layer] as usize;
+        let tile_addr = char_base + (tile_number as usize * 16) + (pixel_row as usize * 2);
+
+        if tile_addr + 1 < memory.vram.len() {
+            let plane0 = memory.vram[tile_addr] as u32;
+            let plane1 = memory.vram[tile_addr + 1] as u32;
+
+            let mut pixel_data = 0u32;
+            for bit in 0..8 {
+                let color = ((plane0 >> bit) & 1) |
+                            ((plane1 >> bit) & 1) << 1;
+                pixel_data |= color << (bit * 2);
+            }
+            pixel_data
+
+        } else {
+            0
+        }
+    }
+
+    fn apply_brightness(&self, color: u32) -> u32 {
+        if self.forced_blank {
+            return 0x00000000;
+        }
+
+        if self.brightness == 0 {
+            return 0x00000000;
+        }
+
+        if self.brightness == 15 {
+            return color;
+        }
+
+        let r = ((color >> 16) & 0xFF) as u32;
+        let g = ((color >> 8) & 0xFF) as u32;
+        let b = (color & 0xFF) as u32;
+
+        let brightness_factor = (self.brightness as u32 + 1) * 17;
+        let r_adjusted = (r * brightness_factor) / 255;
+        let g_adjusted = (g * brightness_factor) / 255;
+        let b_adjusted = (b * brightness_factor) / 255;
+
+        (r_adjusted << 16) | (g_adjusted << 8) | b_adjusted
+    }
+
     fn get_bg_tile_index(&self, memory: &Memory, bg_layer: usize, tile_x: u16, tile_y: u16) -> u16 {
-        let tilemap_addr = 0x0000 + (bg_layer * 0x800);
+        let tilemap_addr = self.bg_tilemap_addr[bg_layer] as usize;
         let tile_addr = tilemap_addr + ((tile_y * 32 + tile_x) * 2) as usize;
 
-        if tile_addr < memory.vram.len() {
+        if tile_addr + 1 < memory.vram.len() {
             let low = memory.vram[tile_addr] as u16;
             let high = memory.vram[tile_addr + 1] as u16;
             (high << 8) | low
@@ -337,16 +591,18 @@ impl Ppu {
 
     pub fn write_register(&mut self, addr: u16, value: u8) {
         match addr {
-            0x2100 => {
+            INIDISP => {
                 self.brightness = value & 0x0F;
                 self.forced_blank = (value & 0x80) != 0;
+                self.inidisp = value;
             }
 
-            0x2101 => {
+            OBSEL => {
                 self.sprite_size = value & 0x07;
+                self.obsel = value;
             }
 
-            0x2105 => {
+            BGMODE => {
                 self.video_mode = match value & 0x07 {
                     0 => VideoMode::Mode0,
                     1 => VideoMode::Mode1,
@@ -363,9 +619,117 @@ impl Ppu {
                 self.bg_size[1] = (value & 0x20) != 0;
                 self.bg_size[2] = (value & 0x40) != 0;
                 self.bg_size[3] = (value & 0x80) != 0;
+                self.bg_mode_reg = value;
             }
 
-            0x2115 => {
+            MOSAIC => {
+                self.mosaic = value;
+            }
+
+            BG1SC => {
+                self.bg_tilemap_addr[0] = ((value as u16) & 0xFC) << 8;
+            }
+
+            BG2SC => {
+                self.bg_tilemap_addr[1] = ((value as u16) & 0xFC) << 8;
+            }
+
+            BG3SC => {
+                self.bg_tilemap_addr[2] = ((value as u16) & 0xFC) << 8;
+            }
+
+            BG4SC => {
+                self.bg_tilemap_addr[3] = ((value as u16) & 0xFC) << 8;
+            }
+
+            BG12NBA => {
+                self.bg_char_addr[0] = ((value & 0x0F) as u16) << 12;
+                self.bg_char_addr[1] = ((value & 0xF0) as u16) << 8;
+            }
+
+            BG34NBA => {
+                self.bg_char_addr[2] = ((value & 0x0F) as u16) << 12;
+                self.bg_char_addr[3] = ((value & 0xF0) as u16) << 8;
+            }
+
+            M7SEL => {
+                self.mode7_settings = value;
+            }
+
+            W12SEL => {
+                self.window_settings[0] = value;
+            }
+
+            W34SEL => {
+                self.window_settings[1] = value;
+            }
+
+            WOBJSEL => {
+                self.window_settings[2] = value;
+            }
+
+            WH0 => {
+                self.window_positions[0] = value;
+            }
+
+            WH1 => {
+                self.window_positions[1] = value;
+            }
+
+            WH2 => {
+                self.window_positions[2] = value;
+            }
+
+            WH3 => {
+                self.window_positions[3] = value;
+            }
+
+            WBGLOG => {
+                self.window_logic[0] = value;
+            }
+
+            WOBJLOG => {
+                self.window_logic[1] = value;
+            }
+
+            TM => {
+                self.bg_enabled[0] = (value & 0x01) != 0;
+                self.bg_enabled[1] = (value & 0x02) != 0;
+                self.bg_enabled[2] = (value & 0x04) != 0;
+                self.bg_enabled[3] = (value & 0x08) != 0;
+                self.sprites_enabled = (value & 0x10) != 0;
+                self.main_screen_enabled = value;
+            }
+
+            TS => {
+                self.sub_screen_enabled = value;
+            }
+
+            TMW => {
+                self.main_window_mask = value;
+            }
+
+            TSW => {
+                self.sub_window_mask = value;
+            }
+
+            CGWSEL => {
+                self.color_math_control_a = value;
+            }
+
+            CGADSUB => {
+                self.color_math_control_b = value;
+            }
+
+            COLDATA => {
+                self.fixed_color_data = value;
+            }
+
+            SETINI => {
+                self.screen_mode = value;
+            }
+
+            VMAIN => {
                 self.vmain = value;
                 self.vram_increment = match value & 0x03 {
                     0 => 1,
@@ -376,24 +740,16 @@ impl Ppu {
                 };
             }
 
-            0x2116 => {
+            VMADDL => {
                 self.vram_addr = (self.vram_addr & 0xFF00) | (value as u16);
             }
 
-            0x2117 => {
+            VMADDH => {
                 self.vram_addr = (self.vram_addr & 0x00FF) | ((value as u16) << 8);
             }
 
-            0x2121 => {
+            CGADD => {
                 self.cgram_addr = (value as u16) & 0x1FF;
-            }
-
-            0x212C => {
-                self.bg_enabled[0] = (value & 0x01) != 0;
-                self.bg_enabled[1] = (value & 0x02) != 0;
-                self.bg_enabled[2] = (value & 0x04) != 0;
-                self.bg_enabled[3] = (value & 0x08) != 0;
-                self.sprites_enabled = (value & 0x10) != 0;
             }
 
             0x4200 => {
@@ -407,26 +763,26 @@ impl Ppu {
     pub fn read_register(&mut self, addr: u16) -> u8 {
         match addr {
 
-            0x2137 => {
+            SLHV => {
                 0 //placeholder
             }
 
-            0x213C => {
+            OPHCT => {
                 (self.cycle & 0xFF) as u8
             }
 
-            0x213D => {
+            OPVCT => {
                 (self.scanline & 0xFF) as u8
             }
 
-            0x213E => {
+            STAT77 => {
                 let mut status = 0x01;
                 if self.vblank { status |= 0x80; }
                 if self.hblank { status |= 0x40; }
                 status
             }
 
-            0x213F => {
+            STAT78 => {
                 let mut status = 0x03;
                 if self.nmi_flag { status |= 0x80; }
                 self.nmi_flag = false;

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::cell::RefCell;
 use crate::ppu::Ppu;
+use crate::ppu_registers::*;
 
 pub struct Memory {
     pub wram: [u8; 0x20000], // 128KB WRAM
@@ -271,11 +272,11 @@ impl Memory{
         let mut ppu = self.ppu.borrow_mut();
 
         match addr {
-            0x213C | 0x213D | 0x213E | 0x213F | 0x4210 | 0x4211 |0x4212 => {
+            OPHCT | OPVCT | STAT77 | STAT78 | 0x4210 | 0x4211 |0x4212 => {
                 ppu.read_register(addr)
             } 
 
-            0x2138 => {
+            OAMDATAREAD => {
                 let oam_addr = ppu.oam_addr;
                 if (oam_addr as usize) < self.oam.len() {
                     let value = self.oam[oam_addr as usize];
@@ -286,29 +287,34 @@ impl Memory{
                 }
             }
 
-            0x2139 => {
+            VMDATALREAD => {
                 let value = (ppu.vram_read_buffer & 0xFF) as u8;
 
                 if (ppu.vmain & 0x80) == 0 {
                     let vram_addr = ppu.vram_addr as usize;
-                    if vram_addr * 2 + 1 < self.vram.len() {
-                        ppu.vram_read_buffer = (self.vram[vram_addr * 2 + 1] as u16) << 8 |
-                                                (self.vram[vram_addr * 2] as u16);
+                    let byte_addr = vram_addr * 2;
+
+                    if byte_addr + 1 < self.vram.len() {
+                        ppu.vram_read_buffer = (self.vram[byte_addr + 1] as u16) << 8 |
+                                                (self.vram[byte_addr] as u16);
                     }
+
                     ppu.vram_addr = ppu.vram_addr.wrapping_add(ppu.vram_increment);
                 }
 
                 value
             }
 
-            0x213A => {
+            VMDATAHREAD => {
                 let value = (ppu.vram_read_buffer >> 8) as u8;
                 
                 if (ppu.vmain & 0x80) != 0 {
                     let vram_addr = ppu.vram_addr as usize;
-                    if vram_addr * 2 + 1 < self.vram.len() {
-                        ppu.vram_read_buffer = (self.vram[vram_addr * 2 + 1] as u16) << 8 |
-                                                (self.vram[vram_addr * 2] as u16);
+                    let byte_addr = vram_addr * 2;
+
+                    if byte_addr + 1 < self.vram.len() {
+                        ppu.vram_read_buffer = (self.vram[byte_addr + 1] as u16) << 8 |
+                                                (self.vram[byte_addr] as u16);
                     }
                     ppu.vram_addr = ppu.vram_addr.wrapping_add(ppu.vram_increment);
                 }
@@ -316,7 +322,7 @@ impl Memory{
                 value
             }
 
-            0x213B => {
+            CGDATAREAD => {
                 let cgram_addr = ppu.cgram_addr as usize;
                 if cgram_addr < self.cgram.len() {
                     let value = self.cgram[cgram_addr as usize];
@@ -327,12 +333,8 @@ impl Memory{
                 }
             }
 
-            0x2134 | 0x2135 | 0x2136 => {
+           MPYL | MPYM | MPYH => {
                 ppu.open_bus
-            }
-
-            0x2140..=0x2143 => {
-                self.registers.get(&addr).copied().unwrap_or(0) // APU Ports - Placeholder
             }
 
             0x2180 => {
@@ -364,61 +366,81 @@ impl Memory{
         let mut ppu = self.ppu.borrow_mut();
 
         match addr {
-            0x2100 => ppu.write_register(addr, value),
-            0x2101 => ppu.write_register(addr, value),
-            0x2105 => ppu.write_register(addr, value),
-            0x212C => ppu.write_register(addr, value),
+
+            INIDISP | OBSEL | BGMODE | MOSAIC | 
+            BG1SC | BG2SC | BG3SC | BG4SC |
+            BG12NBA | BG34NBA |
+            M7SEL | M7A | M7B | M7C | M7D | M7X | M7Y |
+            W12SEL | W34SEL | WOBJSEL | 
+            WH0 | WH1 | WH2 | WH3 |
+            WBGLOG | WOBJLOG |
+            TM | TS | TMW | TSW |
+            CGWSEL | CGADSUB | COLDATA | SETINI |
+            VMAIN | CGADD => {
+                ppu.write_register(addr, value);
+            }
+
             0x4200 => ppu.write_register(addr, value),
 
-            0x2116 => {
+            VMADDL => {
                 self.registers.insert(addr, value);
                 ppu.vram_addr = (ppu.vram_addr & 0xFF00) | (value as u16);
             }
 
-            0x2117 => {
+            VMADDH => {
                 self.registers.insert(addr, value);
                 ppu.vram_addr = (ppu.vram_addr & 0x00FF) | ((value as u16) << 8);
             }
 
-            0x2118 => {
+            VMDATAL => {
                 let vram_addr = ppu.vram_addr;
-                if (vram_addr as usize) < self.vram.len(){
-                    self.vram[vram_addr as usize] = value;
+                let byte_addr = (vram_addr as usize) * 2;
+
+                if byte_addr < self.vram.len() {
+                    self.vram[byte_addr] = value;
                 }
-                ppu.vram_addr = ppu.vram_addr.wrapping_add(ppu.vram_increment);
+
+                if (ppu.vmain & 0x80) == 0 {
+                    ppu.vram_addr = ppu.vram_addr.wrapping_add(ppu.vram_increment);
+                }
             }
 
-            0x2119 => {
+            VMDATAH => {
                 let vram_addr = ppu.vram_addr;
-                if (vram_addr as usize) < self.vram.len(){
-                    self.vram[(vram_addr + 1) as usize ] = value;
+                let byte_addr = (vram_addr as usize) * 2;
+
+                if byte_addr + 1 < self.vram.len() {
+                    self.vram[byte_addr + 1] = value;
                 }
-                ppu.vram_addr = ppu.vram_addr.wrapping_add(ppu.vram_increment);
+
+                if (ppu.vmain & 0x80) != 0 {
+                    ppu.vram_addr = ppu.vram_addr.wrapping_add(ppu.vram_increment);
+                }
             }
 
-            0x2102 => {
+            OAMADDL => {
                 self.registers.insert(0x2102, value);
                 ppu.oam_addr = (ppu.oam_addr & 0xFF00) | (value as u16);
             }
 
-            0x2103 => {
+            OAMADDH => {
                 self.registers.insert(0x2103, value);
                 ppu.oam_addr = (ppu.oam_addr & 0x00FF) | ((value as u16) << 8);
             }
 
-            0x2104 => {
+            OAMDATA => {
                 let oam_addr = ppu.oam_addr;
                 if (oam_addr as usize) < self.oam.len() {
                     self.oam[oam_addr as usize] = value;
                 }
-                ppu.oam_addr = ppu.oam_addr.wrapping_add(1);
+                ppu.oam_addr = (ppu.oam_addr + 1) & 0x21F;
             }
 
-            0x2121 => {
+            CGADD => {
                 ppu.cgram_addr = value as u16;
             }
 
-            0x2122 => {
+            CGDATA => {
                 let cgram_addr = ppu.cgram_addr;
                 if (cgram_addr as usize) < self.cgram.len() {
                     self.cgram[cgram_addr as usize] = value;
@@ -426,24 +448,36 @@ impl Memory{
                 ppu.cgram_addr = ppu.cgram_addr.wrapping_add(1);
             }
 
-            0x210D => {
+            BG1HOFS => {
                 ppu.bg_hscroll[0] = (ppu.bg_hscroll[0] & 0xFF00) | (value as u16);
             }
 
-            0x210E => {
+            BG1VOFS => {
                 ppu.bg_vscroll[0] = (ppu.bg_vscroll[0] & 0xFF00) | (value as u16);
             }
 
-            0x210F => {
+            BG2HOFS => {
                 ppu.bg_hscroll[1] = (ppu.bg_hscroll[1] & 0xFF00) | (value as u16);
             }
 
-            0x2110 => {
+            BG2VOFS => {
                 ppu.bg_vscroll[1] = (ppu.bg_vscroll[1] & 0xFF00) | (value as u16);
             }
 
-            0x2140..=0x2143 => {
-                self.registers.insert(addr, value); // APU Ports - Placeholder
+            BG3HOFS => {
+                ppu.bg_hscroll[2] = (ppu.bg_hscroll[2] & 0xFF00) | (value as u16);
+            }
+
+            BG3VOFS => {
+                ppu.bg_vscroll[2] = (ppu.bg_vscroll[2] & 0xFF00) | (value as u16);
+            }
+
+            BG4HOFS => {
+                ppu.bg_hscroll[3] = (ppu.bg_hscroll[3] & 0xFF00) | (value as u16);
+            }
+
+            BG4VOFS => {
+                ppu.bg_vscroll[3] = (ppu.bg_vscroll[3] & 0xFF00) | (value as u16);
             }
 
             0x2180 => {
