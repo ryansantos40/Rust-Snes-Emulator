@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use crate::ppu::Ppu;
 use crate::ppu_registers::*;
+use crate::system_registers::*;
 
 pub struct Memory {
     pub wram: [u8; 0x20000], // 128KB WRAM
@@ -380,8 +381,6 @@ impl Memory{
                 ppu.write_register(addr, value);
             }
 
-            0x4200 => ppu.write_register(addr, value),
-
             VMADDL => {
                 self.registers.insert(addr, value);
                 ppu.vram_addr = (ppu.vram_addr & 0xFF00) | (value as u16);
@@ -543,11 +542,114 @@ impl Memory{
 
     // DMA/HDMA Registers ($4200-$44FF)
     fn read_dma_registers(&self, addr: u16) -> u8 {
-        self.registers.get(&addr).copied().unwrap_or(0)
+        match addr {
+            RDNMI => {
+                let ppu = self.ppu.borrow();
+                let mut value = 0x02;
+                if ppu.nmi_occurred {
+                    value |= 0x80;
+                }
+
+                value
+            }
+
+            TIMEUP => {
+                0 // Placeholder
+            }
+
+            HVBJOY => {
+                let ppu = self.ppu.borrow();
+                let mut status = 0x00;
+                if ppu.vblank = {status |= 0x80; }
+                if ppu.hblank {status |= 0x40; }
+
+                status
+            }
+
+            _ => self.registers.get(&addr).copied().unwrap_or(0), // Placeholder
+        }
     }
 
     fn write_dma_registers(&mut self, addr: u16, value: u8) {
-        self.registers.insert(addr, value);
+        match addr {
+            NMITIMEN => {
+                let mut ppu = self.ppu.borrow_mut();
+                ppu.nmi_enabled = (value & 0x80) != 0;
+                self.registers.insert(addr, value);
+            }
+
+            WRMPYA => {
+                self.registers.insert(addr, value);
+            }
+
+            WRMPYB => {
+                let a = self.registers.get(&WRMPYA).copied().unwrap_or(0) as u16;
+                let b = value as u16;
+                let result = a.wrapping_mul(b);
+
+                self.registers.insert(0x4216, (result & 0xFF) as u8);
+                self.registers.insert(0x4217, (result >> 8) as u8);
+                self.registers.insert(addr, value);
+            }
+
+            WRDIVL => {
+                self.registers.insert(addr, value);
+            }
+
+            WRDIVH => {
+                self.registers.insert(addr, value);
+            }
+
+            WRDIVB => {
+                let dividend = (self.registers.get(&WRDIVH).copied().unwrap_or(0) as u16) << 8 |
+                               (self.registers.get(&WRDIVL).copied().unwrap_or(0) as u16);
+                let divisor = value as u16;
+
+                let (quotient, remainder) = if divisor != 0 {
+                    (dividend / divisor, dividend % divisor)
+                } else {
+                    (0xFFFF, dividend)
+                };
+
+                self.registers.insert(0x4214, (quotient & 0xFF) as u8);
+                self.registers.insert(0x4215, (quotient >> 8) as u8);
+                self.registers.insert(0x4216, (remainder & 0xFF) as u8);
+                self.registers.insert(0x4217, (remainder >> 8) as u8);
+                self.registers.insert(addr, value);
+            }
+
+            HTIMEL => {
+                self.registers.insert(addr, value);
+            }
+
+            HTIMEH => {
+                self.registers.insert(addr, value);
+            }
+
+            VTIMEL => {
+                self.registers.insert(addr, value);
+            }
+
+            VTIMEH => {
+                self.registers.insert(addr, value);
+            }
+
+            MDMAEN => {
+                self.registers.insert(addr, value);
+            }
+
+            HDMAEN => {
+                self.registers.insert(addr, value);
+            }
+
+            MEMSEL => {
+                self.registers.insert(addr, value);
+            }
+
+            _ => {
+                self.registers.insert(addr, value);
+            }
+        }
     }
 
     // Métodos auxiliares para VRAM, OAM, CGRAM

@@ -1,0 +1,31 @@
+pub const NMITIMEN: u16 = 0x4200;
+pub const WRIO: u16 = 0x4201;
+pub const WRMPYA: u16 = 0x4202;
+pub const WRMPYB: u16 = 0x4203;
+pub const WRDIVL: u16 = 0x4204;
+pub const WRDIVH: u16 = 0x4205;
+pub const WRDIVB: u16 = 0x4206;
+pub const HTIMEL: u16 = 0x4207;
+pub const HTIMEH: u16 = 0x4208;
+pub const VTIMEL: u16 = 0x4209;
+pub const VTIMEH: u16 = 0x420A;
+pub const MDMAEN: u16 = 0x420B;
+pub const HDMAEN: u16 = 0x420C;
+pub const MEMSEL: u16 = 0x420D;
+pub const RDNMI: u16 = 0x4210;
+pub const TIMEUP: u16 = 0x4211;
+pub const HVBJOY: u16 = 0x4212;
+
+pub const RDDIVL: u16 = 0x4214;
+pub const RDDIVH: u16 = 0x4215; 
+pub const RDMPYL: u16 = 0x4216; 
+pub const RDMPYH: u16 = 0x4217;
+
+pub const JOY1L: u16 = 0x4218;
+pub const JOY1H: u16 = 0x4219;
+pub const JOY2L: u16 = 0x421A;
+pub const JOY2H: u16 = 0x421B;
+pub const JOY3L: u16 = 0x421C;
+pub const JOY3H: u16 = 0x421D;
+pub const JOY4L: u16 = 0x421E;
+pub const JOY4H: u16 = 0x421F;

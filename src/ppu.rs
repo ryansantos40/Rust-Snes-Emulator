@@ -59,7 +59,7 @@ pub struct Ppu {
     pub mosaic: u8,
 
     pub bg_tilemap_addr: [u16; 4],
-    pub bg_tiledata_addr: [u16; 4],
+    pub bg_char_addr: [u16; 4],
 
     pub mode7_settings: u8,
     pub mode7_matrix: [i16; 4],
@@ -212,26 +212,32 @@ impl Ppu {
     fn render_scanline(&mut self, memory: &mut Memory) {
         self.line_buffer.fill(0);
 
+        let mut priority_buffer = [0u8; 256];
+
         match self.video_mode {
             VideoMode::Mode0 => {
-                for bg in 0..4 {
-                    if self.bg_enabled[bg] {
-                        self.render_bg_mode0(memory, bg);
+                for priority in (0..=1).rev(){
+                    for bg in 0..4 {
+                        if self.bg_enabled[bg] {
+                            self.render_bg_mode0(memory, bg, priority, &mut priority_buffer);
+                        }
                     }
                 }
             }
 
             VideoMode::Mode1 => {
-                if self.bg_enabled[2] {
-                    self.render_bg_mode1_2bpp(memory, 2);
-                }
+                for priority in (0..=1).rev() {
+                    if self.bg_enabled[2] {
+                        self.render_bg_mode1_2bpp(memory, 2, priority, &mut priority_buffer);
+                    }
 
-                if self.bg_enabled[0] {
-                    self.render_bg_mode1_4bpp(memory, 0);
-                }
+                    if self.bg_enabled[0] {
+                        self.render_bg_mode1_4bpp(memory, 0, priority, &mut priority_buffer);
+                    }
 
-                if self.bg_enabled[1] {
-                    self.render_bg_mode1_4bpp(memory, 1);
+                    if self.bg_enabled[1] {
+                        self.render_bg_mode1_4bpp(memory, 1, priority, &mut priority_buffer);
+                    }
                 }
             }
 
@@ -241,7 +247,7 @@ impl Ppu {
         }
 
         if self.sprites_enabled {
-            self.render_sprites(memory);
+            self.render_sprites(memory, &mut priority_buffer);
         }
 
         for x in 0..256 {
@@ -254,7 +260,7 @@ impl Ppu {
         }
     }
 
-    fn render_bg_mode0(&mut self, memory: &Memory, bg_layer: usize) {
+    fn render_bg_mode0(&mut self, memory: &Memory, bg_layer: usize, target_priority: u8, priority_buffer: &mut [u8; 256]) {
         let scroll_x = self.bg_hscroll[bg_layer];
         let scroll_y = self.bg_vscroll[bg_layer];
 
@@ -271,12 +277,16 @@ impl Ppu {
             let tile_info = self.get_bg_tile_index(memory, bg_layer, tile_x, tile_y);
             let tile_number = tile_info & 0x03FF;
             let palette = ((tile_info >> 10) & 0x07) as u8;
+            let tile_priority = ((tile_info >> 13) & 0x01) as u8;
             let flip_x = ((tile_info >> 14) & 0x01) != 0;
             let flip_y = ((tile_info >> 15) & 0x01) != 0;
 
-            let actual_pixel_y = if flip_y { 7 - pixel_y } else { pixel_y };
+            if tile_priority != target_priority {
+                continue;
+            }
 
-            let tile_data = self.get_tile_data_2bpp(memory, tile_number, actual_pixel_y);
+            let actual_pixel_y = if flip_y { 7 - pixel_y } else { pixel_y };
+            let tile_data = self.get_tile_data_2bpp(memory, bg_layer, tile_number, actual_pixel_y);
             
             for pixel_x in 0..8 {
                 let screen_x = ((x_pos + pixel_x) & 0x1FF) as usize;
@@ -286,15 +296,19 @@ impl Ppu {
                     let color_index = ((tile_data >> (actual_pixel_x * 2)) & 0x03) as u8;
 
                     if color_index != 0 {
-                        let cgram_index = (bg_layer as u8 * 32) + (palette * 4) + color_index;
-                        self.line_buffer[screen_x] = cgram_index;
+                        let current_priority = priority_buffer[screen_x];
+                        if tile_priority >= current_priority {
+                            let cgram_index = (bg_layer as u8 * 32) + (palette * 4) + color_index;
+                            self.line_buffer[screen_x] = cgram_index;
+                            priority_buffer[screen_x] = tile_priority;
+                        }
                     }
                 }
             }
         }
     }
 
-    fn render_bg_mode1_4bpp(&mut self, memory: &Memory, bg_layer: usize) {
+    fn render_bg_mode1_4bpp(&mut self, memory: &Memory, bg_layer: usize, target_priority: u8, priority_buffer: &mut [u8; 256]) {
         let scroll_x = self.bg_hscroll[bg_layer];
         let scroll_y = self.bg_vscroll[bg_layer];
 
@@ -311,13 +325,17 @@ impl Ppu {
             let tile_info = self.get_bg_tile_index(memory, bg_layer, tile_x, tile_y);
             let tile_number = tile_info & 0x03FF;
             let palette = ((tile_info >> 10) & 0x07) as u8;
-            let priority = ((tile_info >> 13) & 0x01) != 0;
+            let tile_priority = ((tile_info >> 13) & 0x01) as u8;
             let flip_x = ((tile_info >> 14) & 0x01) != 0;
             let flip_y = ((tile_info >> 15) & 0x01) != 0;
 
+            if tile_priority != target_priority {
+                continue;
+            }
+
             let actual_pixel_y = if flip_y { 7 - pixel_y } else { pixel_y };
 
-            let tile_data = self.get_tile_data_4bpp(memory, tile_number, actual_pixel_y);
+            let tile_data = self.get_tile_data_4bpp(memory, bg_layer,tile_number, actual_pixel_y);
 
             for pixel_x in 0..8 {
                 let screen_x = ((x_pos + pixel_x) & 0x1FF) as usize;
@@ -326,8 +344,13 @@ impl Ppu {
                     let actual_pixel_x = if flip_x { 7 - pixel_x } else { pixel_x };
                     let color_index = ((tile_data >> (actual_pixel_x * 4)) & 0x0F) as u8;
                     if color_index != 0 {
-                        let cgram_index = (palette * 16) + color_index;
-                        self.line_buffer[screen_x] = cgram_index;
+                        let current_priority = priority_buffer[screen_x];
+
+                        if tile_priority >= current_priority {
+                            let cgram_index = (palette * 16) + color_index;
+                            self.line_buffer[screen_x] = cgram_index;
+                            priority_buffer[screen_x] = tile_priority;
+                        }
                     }
                 }
             }
@@ -335,7 +358,7 @@ impl Ppu {
         }
     }
 
-    fn render_bg_mode1_2bpp(&mut self, memory: &Memory, bg_layer: usize) {
+    fn render_bg_mode1_2bpp(&mut self, memory: &Memory, bg_layer: usize, target_priority: u8, priority_buffer: &mut [u8; 256]) {
         let scroll_x = self.bg_hscroll[bg_layer];
         let scroll_y = self.bg_vscroll[bg_layer];
 
@@ -352,11 +375,15 @@ impl Ppu {
             let tile_info = self.get_bg_tile_index(memory, bg_layer, tile_x, tile_y);
             let tile_number = tile_info & 0x03FF;
             let palette = ((tile_info >> 10) & 0x07) as u8;
+            let tile_priority = ((tile_info >> 13) & 0x01) as u8;
             let flip_x = ((tile_info >> 14) & 0x01) != 0;
             let flip_y = ((tile_info >> 15) & 0x01) != 0;
 
-            let actual_pixel_y = if flip_y { 7 - pixel_y } else { pixel_y };
+            if tile_priority != target_priority {
+                continue;
+            }
 
+            let actual_pixel_y = if flip_y { 7 - pixel_y } else { pixel_y };
             let tile_data = self.get_tile_data(memory, tile_number, actual_pixel_y);
 
             for pixel_x in 0..8 {
@@ -367,8 +394,13 @@ impl Ppu {
                     let color_index = ((tile_data >> (actual_pixel_x * 2)) & 0x03) as u8;
 
                     if color_index != 0 {
-                        let cgram_index = 128 + (palette * 4) + color_index;
-                        self.line_buffer[screen_x] = cgram_index;
+                        let current_priority = priority_buffer[screen_x];
+
+                        if tile_priority >= current_priority {
+                            let cgram_index = 128 + (palette * 4) + color_index;
+                            self.line_buffer[screen_x] = cgram_index;
+                            priority_buffer[screen_x] = tile_priority;
+                        }
                     }
                 }
             }
@@ -514,7 +546,7 @@ impl Ppu {
         }
     }
 
-    fn render_sprites(&mut self, memory: &Memory) {
+    fn render_sprites(&mut self, memory: &Memory, priority_buffer: &mut [u8; 256]) {
         for sprite in 0..128 {
             let oam_addr = sprite * 4;
 
@@ -523,6 +555,8 @@ impl Ppu {
                 let y = memory.oam[oam_addr + 1] as u16;
                 let tile = memory.oam[oam_addr + 2] as u16;
                 let attr = memory.oam[oam_addr + 3];
+
+                let sprite_priority = ((attr >> 4) & 0x03) +2;
 
                 if y <= self.scanline && self.scanline < y + 8 {
                     let sprite_y = self.scanline - y;
@@ -534,7 +568,11 @@ impl Ppu {
                         if screen_x < 256 {
                             let color_index = (sprite_data >> (pixel_x * 4)) & 0x0F;
                             if color_index != 0 {
-                                self.line_buffer[screen_x] = color_index as u8 + 16;
+                                let current_priority = priority_buffer[screen_x];
+                                if sprite_priority >= current_priority {
+                                    self.line_buffer[screen_x] = color_index as u8 + 16;
+                                    priority_buffer[screen_x] = sprite_priority;
+                                }
                             }
                         }
                     }
@@ -752,10 +790,6 @@ impl Ppu {
                 self.cgram_addr = (value as u16) & 0x1FF;
             }
 
-            0x4200 => {
-                self.nmi_enabled = (value & 0x80) != 0;
-            }
-
             _ => {}
         }
     }
@@ -797,10 +831,6 @@ impl Ppu {
                 self.nmi_flag = false;
 
                 value
-            }
-
-            0x4211 => {
-                0 //placeholder
             }
 
             0x4212 => {
