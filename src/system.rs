@@ -55,11 +55,11 @@ impl System {
         self.ppu.borrow().get_framebuffer().to_vec()
     }
 
-    pub fn get_ppu(&self) -> std::cell::Ref<Ppu> {
+    pub fn get_ppu(&self) -> std::cell::Ref<'_,Ppu> {
         self.ppu.borrow()
     }
 
-    pub fn get_ppu_mut(&self) -> std::cell::RefMut<Ppu> {
+    pub fn get_ppu_mut(&self) -> std::cell::RefMut<'_,Ppu> {
         self.ppu.borrow_mut()
     }
 

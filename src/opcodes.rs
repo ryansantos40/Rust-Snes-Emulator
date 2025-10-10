@@ -26,6 +26,10 @@ pub enum Operation {
 
     JumpSubroutine, ReturnFromSubroutine, ReturnFromInterrupt, SoftwareInterrupt,
 
+    CoprocessorInterrupt,
+
+    TestAndSetBits, TestAndResetBits,
+
     SetFlag(u8), ClearFlag(u8),
 
     Jump, JumpIndirect,
@@ -237,6 +241,13 @@ pub fn create_opcode_table() -> HashMap<u8, OpcodeInfo> {
     table.insert(0x60, OpcodeInfo { operation: ReturnFromSubroutine, mode: Implied, cycles: 6 });
     table.insert(0x40, OpcodeInfo { operation: ReturnFromInterrupt, mode: Implied, cycles: 6 });
     table.insert(0x00, OpcodeInfo { operation: SoftwareInterrupt, mode: Implied, cycles: 7 });
+    table.insert(0x02, OpcodeInfo { operation: CoprocessorInterrupt, mode: Immediate, cycles: 7 });
+
+    //Bit Operations
+    table.insert(0x04, OpcodeInfo { operation: TestAndSetBits, mode: DirectPage, cycles: 5 });
+    table.insert(0x0C, OpcodeInfo { operation: TestAndSetBits, mode: Absolute, cycles: 6 });
+    table.insert(0x14, OpcodeInfo { operation: TestAndResetBits, mode: DirectPage, cycles: 5 });
+    table.insert(0x1C, OpcodeInfo { operation: TestAndResetBits, mode: Absolute, cycles: 6 });
 
     //Jumps
     table.insert(0x4C, OpcodeInfo { operation: Jump, mode: Absolute, cycles: 3 });

@@ -1,12 +1,6 @@
 use std::fs;
 use std::io::Read;
-use system::System;
-
-mod cpu;
-mod memory;
-mod opcodes;
-mod ppu;
-mod system;
+use snes_emulator::System;
 
 fn main (){
     println!("Iniciando emulador SNES...");

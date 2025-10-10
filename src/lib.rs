@@ -10,5 +10,3 @@ pub use memory::Memory;
 pub use cpu::Cpu;
 pub use ppu::Ppu;
 pub use system::System;
-pub use system_registers::*;
-pub use ppu_registers::*;

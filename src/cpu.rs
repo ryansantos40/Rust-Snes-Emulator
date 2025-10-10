@@ -695,6 +695,112 @@ impl Cpu {
 
             }
 
+            Operation::CoprocessorInterrupt => {
+                let _signature = memory.read(self.pc);
+                self.pc += 1;
+
+                if self.e_flag{
+                    self.push_byte(memory, (self.pc >> 8) as u8);
+                    self.push_byte(memory, self.pc as u8);
+                    self.push_byte(memory, self.p | 0x10);
+
+                } else {
+                    self.push_byte(memory, (self.pc >> 16) as u8);
+                    self.push_byte(memory, (self.pc >> 8) as u8);
+                    self.push_byte(memory, self.pc as u8);
+                    self.push_byte(memory, self.p);
+                }
+
+                self.p |= Self::FLAG_IRQ;
+                self.p &= !Self::FLAG_DECIMAL;
+
+                let cop_vector = if self.e_flag { 0xFFF4 } else { 0x00FFE4 };
+                let cop_low = memory.read(cop_vector) as u32;
+                let cop_high = memory.read(cop_vector + 1) as u32;
+
+                if self.e_flag{
+                    self.pc = (cop_high << 8) | cop_low;
+
+                } else {
+                    self.pc = (cop_high << 8) | cop_low;
+                    self.pb = 0x00;
+                }
+            }
+
+            Operation::TestAndSetBits => {
+                let addr = self.get_effective_address(mode, memory);
+                let acc_value = if self.m_flag { self.a & 0xFF } else { self.a };
+
+                if self.m_flag {
+                    let mem_value = memory.read(addr);
+
+                    let test_result = (acc_value as u8) & mem_value;
+                    if test_result == 0 {
+                        self.p |= Self::FLAG_ZERO;
+
+                    } else {
+                        self.p &= !Self::FLAG_ZERO;
+                    }
+
+                    let new_value = mem_value | acc_value as u8;
+                    memory.write(addr, new_value);
+
+                } else {
+                    let mem_low = memory.read(addr) as u16;
+                    let mem_high = memory.read(addr + 1) as u16;
+                    let mem_value = (mem_high << 8) | mem_low;
+
+                    let test_result = acc_value & mem_value;
+                    if test_result == 0 {
+                        self.p |= Self::FLAG_ZERO;
+
+                    } else {
+                        self.p &= !Self::FLAG_ZERO;
+                    }
+
+                    let new_value = mem_value | acc_value;
+                    memory.write(addr, new_value as u8);
+                    memory.write(addr + 1, (new_value >> 8) as u8);
+                }
+            }
+
+            Operation::TestAndResetBits => {
+                let addr = self.get_effective_address(mode, memory);
+                let acc_value = if self.m_flag { self.a & 0xFF } else { self.a };
+
+                if self.m_flag {
+                    let mem_value = memory.read(addr);
+
+                    let test_result = (acc_value as u8) & mem_value;
+                    if test_result == 0 {
+                        self.p |= Self::FLAG_ZERO;
+
+                    } else {
+                        self.p &= !Self::FLAG_ZERO;
+                    }
+
+                    let new_value = mem_value & !(acc_value as u8);
+                    memory.write(addr, new_value);
+
+                } else {
+                    let mem_low = memory.read(addr) as u16;
+                    let mem_high = memory.read(addr + 1) as u16;
+                    let mem_value = (mem_high << 8) | mem_low;
+
+                    let test_result = acc_value & mem_value;
+                    if test_result == 0 {
+                        self.p |= Self::FLAG_ZERO;
+
+                    } else {
+                        self.p &= !Self::FLAG_ZERO;
+                    }
+
+                    let new_value = mem_value & !acc_value;
+                    memory.write(addr, new_value as u8);
+                    memory.write(addr + 1, (new_value >> 8) as u8);
+                }
+            }
+
             Operation::SetFlag(flag) => self.set_flag(flag),
             Operation::ClearFlag(flag) => self.clear_flag(flag),
 
@@ -723,10 +829,6 @@ impl Cpu {
             }
 
             Operation::Nop => { /* Do nothing */}
-
-            _ => {
-                println!("Unimplemented operation: {:?} in mode: {:?}", op, mode);
-            }
         }
     }
 

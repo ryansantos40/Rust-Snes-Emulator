@@ -2,21 +2,6 @@ use snes_emulator::System;
 use snes_emulator::opcodes;
 use std::{env, fs};
 
-fn detect_boot_phase(system: &System) -> &'static str {
-    let pc = system.cpu.pc;
-    let brightness = system.get_ppu().brightness;
-    let nmi_enabled = system.get_ppu().nmi_enabled;
-    
-    match (pc, brightness, nmi_enabled) {
-        (0x8000..=0x804A, 0, false) => "🔧 Inicialização da WRAM",
-        (0x804B..=0x8200, 0, false) => "⚙️  Inicialização do hardware",
-        (_, 0, false) => "📺 Configurando vídeo",
-        (_, 1..=15, false) => "🎨 Carregando gráficos",
-        (_, _, true) => "🎮 Loop principal (NMI ativo)",
-        _ => "❓ Fase desconhecida"
-    }
-}
-
 fn main() {
     let args: Vec<String> = env::args().collect();
     
@@ -33,19 +18,18 @@ fn main() {
         format!("test_roms/{}", rom_name)
     };
     
-    println!("Carregando ROM: {}", rom_path);
+    println!("📂 Carregando ROM: {}", rom_path);
     
     let rom_data = match fs::read(&rom_path) {
         Ok(mut data) => {
-            // Remove header SMC se presente
             if data.len() % 1024 == 512 {
-                println!("Removendo header SMC...");
+                println!("🔧 Removendo header SMC...");
                 data.drain(0..512);
             }
             data
         },
         Err(e) => {
-            eprintln!("Erro ao carregar ROM: {}", e);
+            eprintln!("❌ Erro ao carregar ROM: {}", e);
             return;
         }
     };
@@ -57,240 +41,141 @@ fn main() {
     let reset_high = system.memory.read(0x00FFFD) as u32;
     system.cpu.pc = (reset_high << 8) | reset_low;
     
-    println!("=== INFORMAÇÕES DA ROM ===");
-    println!("Título: {}", system.memory.get_rom_title());
-    println!("Tipo: {:?}", system.memory.rom_type);
-    println!("SRAM: {} bytes", system.memory.sram_size);
-    println!("Reset Vector: ${:04X}", system.cpu.pc);
-    println!("Estado inicial CPU: {}", system.get_cpu_state());
-    println!("Estado inicial PPU: Scanline {}, Cycle {}, VBlank: {}", 
-             system.get_scanline(), 
-             system.get_ppu().cycle,
-             system.is_vblank());
-    
-    // Mostra vetores de interrupção
-    let brk_vector = {
-        let low = system.memory.read(0x00FFE6) as u16;
-        let high = system.memory.read(0x00FFE7) as u16;
-        (high << 8) | low
-    };
-    
-    let nmi_vector = {
-        let low = system.memory.read(0x00FFEA) as u16;
-        let high = system.memory.read(0x00FFEB) as u16;
-        (high << 8) | low
-    };
-    println!("\n=== VETORES DE INTERRUPÇÃO ===");
-    println!("BRK Vector: ${:04X}", brk_vector);
-    println!("NMI Vector: ${:04X}", nmi_vector);
-    
-    println!("\n=== EXECUÇÃO ===");
+    println!("\n╔═══════════════════════════════════════╗");
+    println!("║       INFORMAÇÕES DA ROM              ║");
+    println!("╠═══════════════════════════════════════╣");
+    println!("║ Título: {:<29} ║", system.memory.get_rom_title());
+    println!("║ Tipo: {:?}                       ║", system.memory.rom_type);
+    println!("║ SRAM: {} bytes                      ║", system.memory.sram_size);
+    println!("║ Reset Vector: ${:04X}                 ║", system.cpu.pc);
+    println!("╚═══════════════════════════════════════╝\n");
     
     let max_instructions = args.get(2)
         .and_then(|s| s.parse().ok())
-        .unwrap_or(1000);
+        .unwrap_or(100000);
     
     let mut frames = 0;
-    let mut instructions = 0;
+    let mut instructions_this_frame = 0;
     let mut last_scanline = 0;
-    let mut last_phase = "";
+    let verbose = args.contains(&"--verbose".to_string());
+    
+    println!("🎮 Iniciando emulação... (max {} instruções)\n", max_instructions);
     
     for i in 0..max_instructions {
         let current_pc = system.cpu.pc;
         let opcode = system.memory.read(current_pc);
         
-        // ✅ VERIFICA SE O OPCODE É VÁLIDO ANTES DE EXECUTAR
+        // ✅ VERIFICA OPCODE NÃO IMPLEMENTADO
         if opcodes::get_opcode_info(opcode).is_none() {
-            println!("\n❌ ============================================");
-            println!("❌ OPCODE NÃO IMPLEMENTADO DETECTADO!");
-            println!("❌ ============================================");
-            println!("📍 Endereço: ${:06X}", current_pc);
-            println!("🔢 Opcode: ${:02X}", opcode);
-            println!("📊 Estado CPU: {}", system.get_cpu_state());
-            println!("🖼️  Estado PPU: Scanline {}, Cycle {}", system.get_scanline(), system.get_ppu().cycle);
-            println!("📈 Instruções executadas: {}", i);
-            println!("⏱️  Ciclos totais: {}", system.cpu.cycles);
+            println!("\n❌ ═══════════════════════════════════════════════");
+            println!("❌ OPCODE NÃO IMPLEMENTADO: ${:02X}", opcode);
+            println!("❌ ═══════════════════════════════════════════════");
+            println!("📍 PC: ${:06X} | Instrução #{}", current_pc, i + 1);
+            println!("📊 CPU: {}", system.get_cpu_state());
+            println!("🎨 PPU: Scanline {} Cycle {} VBlank:{}", 
+                     system.get_scanline(), 
+                     system.get_ppu().cycle,
+                     system.is_vblank());
             
-            // Mostra contexto (bytes ao redor)
-            println!("\n📄 Contexto da memória:");
-            print!("   ${:06X}: ", current_pc.saturating_sub(4));
+            // Contexto de memória
+            print!("📄 Memória: ");
             for offset in -4i32..=4 {
                 let addr = (current_pc as i32 + offset) as u32;
                 let byte = system.memory.read(addr);
                 if offset == 0 {
-                    print!("[{:02X}] ", byte); // Destaca o opcode problemático
+                    print!("→[{:02X}]← ", byte);
                 } else {
                     print!("{:02X} ", byte);
                 }
             }
-            println!();
-            
-            println!("\n💡 DICA: Implemente o opcode ${:02X} no arquivo opcodes.rs", opcode);
-            println!("❌ ============================================\n");
+            println!("\n💡 Adicione o opcode ${:02X} em opcodes.rs", opcode);
+            println!("❌ ═══════════════════════════════════════════════\n");
             break;
         }
         
-        let old_state = system.get_cpu_state();
+        // 🔇 SILENCIA BRK (apenas conta)
+        let is_brk = opcode == 0x00;
         
-        // Detecta BRK ANTES de executar
-        if opcode == 0x00 {
-            println!("\n🚨 ============================================");
-            println!("🚨 BRK (SOFTWARE INTERRUPT) DETECTADO!");
-            println!("🚨 ============================================");
-            println!("📍 Endereço do BRK: ${:06X}", current_pc);
-            println!("📊 Estado CPU antes: {}", system.get_cpu_state());
-            println!("🎯 BRK Vector: ${:04X}", brk_vector);
-            
-            // Contexto
-            print!("📄 Contexto: ");
-            for offset in -2i32..=2 {
-                let addr = (current_pc as i32 + offset) as u32;
-                let byte = system.memory.read(addr);
-                if offset == 0 {
-                    print!("[{:02X}] ", byte);
-                } else {
-                    print!("{:02X} ", byte);
-                }
-            }
-            println!();
+        // Log verbose apenas se solicitado
+        if verbose && i < 50 {
+            let old_state = system.get_cpu_state();
+            let cycles = system.step();
+            println!("{:4}: ${:04X} {:02X} {} → {} ({}c)", 
+                     i + 1, current_pc, opcode, old_state, system.get_cpu_state(), cycles);
+        } else {
+            system.step();
         }
         
-        // Executa uma instrução (CPU + PPU)
-        let cycles = system.step();
-        instructions += 1;
+        instructions_this_frame += 1;
         
-        // Se foi um BRK, mostra o estado depois
-        if opcode == 0x00 {
-            println!("📊 Estado CPU depois: {}", system.get_cpu_state());
-            println!("📍 Novo PC: ${:06X}", system.cpu.pc);
-            println!("🚨 ============================================\n");
-        }
-        
-        // Detecta mudança de fase
-        let current_phase = detect_boot_phase(&system);
-        if current_phase != last_phase {
-            println!("\n🔄 ════════ MUDANÇA DE FASE ════════");
-            println!("   {} → {}", last_phase, current_phase);
-            println!("   PC: ${:06X} | Instrução: {}", system.cpu.pc, i + 1);
-            println!("════════════════════════════════════\n");
-            last_phase = current_phase;
-        }
-        
-        // Log detalhado das primeiras instruções
-        if i < 50 {
-            println!("{:4}: ${:04X}: {:02X} {} -> {} ({}c) | PPU: L{:3} C{:3}", 
-                     i + 1, 
-                     current_pc, 
-                     opcode, 
-                     old_state, 
-                     system.get_cpu_state(), 
-                     cycles,
-                     system.get_scanline(),
-                     system.get_ppu().cycle);
-        } else if i % 100 == 0 {
-            // Log esporádico com fase
-            println!("{:4}: ${:04X}: {:02X} - {} | {} | PPU: L{:3} C{:3}", 
-                     i + 1, 
-                     current_pc, 
-                     opcode, 
-                     system.get_cpu_state(),
-                     current_phase,
-                     system.get_scanline(),
-                     system.get_ppu().cycle);
-        }
-        
-        // Detecta mudança de scanline (para ver se PPU está funcionando)
+        // 📺 DETECTA MUDANÇA DE SCANLINE (sem spam)
         let current_scanline = system.get_scanline();
-        if current_scanline != last_scanline {
-            if i < 50 || current_scanline % 50 == 0 {
-                println!("  └─ PPU: Scanline {} | VBlank: {}", 
-                         current_scanline,
-                         system.is_vblank());
+        if current_scanline != last_scanline && current_scanline % 60 == 0 {
+            if verbose {
+                println!("  📺 Scanline {}", current_scanline);
             }
             last_scanline = current_scanline;
         }
         
-        // Detecta frames completos
+        // 🎬 FRAME COMPLETO
         if system.frame_ready() {
             frames += 1;
-            println!("\n  ╔════════════════════════════════════════╗");
-            println!("  ║  FRAME #{} COMPLETO                     ║", frames);
-            println!("  ║  Instruções: {}                       ║", instructions);
-            println!("  ║  CPU Cycles: {}                    ║", system.cpu.cycles);
-            println!("  ╚════════════════════════════════════════╝\n");
+            println!("🎬 Frame #{:2} │ {} instruções │ {} ciclos │ PC: ${:06X}", 
+                     frames, 
+                     instructions_this_frame,
+                     system.cpu.cycles,
+                     system.cpu.pc);
             
-            instructions = 0;
+            instructions_this_frame = 0;
             
-            // Para após alguns frames para não ficar infinito
-            if frames >= 3 {
-                println!("Limite de frames atingido. Encerrando...");
+            if frames >= 30000 {
+                println!("\n✅ Limite de {} frames atingido", frames);
                 break;
             }
         }
         
-        // Detecta entrada em VBlank
-        if system.is_vblank() && !system.get_ppu().frame_complete {
-            if i < 100 || i % 200 == 0 {
-                println!("  └─ VBlank iniciado na instrução {}", i + 1);
-            }
-        }
-        
-        // Detecta loop infinito
-        if current_pc == system.cpu.pc && opcode != 0x00 {  // Ignora BRK
-            println!("\n🔁 Loop infinito detectado em ${:04X}", current_pc);
-            println!("   Isso é normal se o programa entrou em loop de espera.");
+        // 🔁 DETECTA LOOP INFINITO
+        if !is_brk && system.cpu.pc == current_pc {
+            println!("\n🔁 Loop infinito em ${:04X} (instrução #{})", current_pc, i + 1);
+            println!("   (Programa entrou em wait loop)");
             break;
         }
     }
     
-    println!("\n=== ESTATÍSTICAS FINAIS ===");
-    println!("Fase final: {}", detect_boot_phase(&system));
-    println!("Estado final CPU: {}", system.get_cpu_state());
-    println!("Ciclos totais CPU: {}", system.cpu.cycles);
-    println!("Frames completos: {}", frames);
-    println!("Estado final PPU:");
-    println!("  - Scanline: {}", system.get_scanline());
-    println!("  - Cycle: {}", system.get_ppu().cycle);
-    println!("  - VBlank: {}", system.is_vblank());
-    println!("  - Video Mode: {:?}", system.get_ppu().video_mode);
-    println!("  - Brightness: {}", system.get_ppu().brightness);
-    println!("  - NMI Enabled: {}", system.get_ppu().nmi_enabled);
+    // ═══════════════════════════════════════════════════════
+    // ESTATÍSTICAS FINAIS
+    // ═══════════════════════════════════════════════════════
+    println!("\n╔═══════════════════════════════════════════════════╗");
+    println!("║          ESTATÍSTICAS FINAIS                      ║");
+    println!("╠═══════════════════════════════════════════════════╣");
+    println!("║ 🎮 Frames renderizados: {:25} ║", frames);
+    println!("║ ⏱️  Ciclos CPU: {:34} ║", system.cpu.cycles);
+    println!("║ 📊 Estado CPU: {:33} ║", system.get_cpu_state());
+    println!("║ 📍 PC final: ${:04X}                              ║", system.cpu.pc);
+    println!("╠═══════════════════════════════════════════════════╣");
+    println!("║ PPU:                                              ║");
+    println!("║   📺 Scanline: {:35} ║", system.get_scanline());
+    println!("║   🔄 Cycle: {:38} ║", system.get_ppu().cycle);
+    println!("║   🌑 VBlank: {:37} ║", system.is_vblank());
+    println!("║   🎨 Video Mode: {:?}                          ║", system.get_ppu().video_mode);
+    println!("║   💡 Brightness: {:32} ║", system.get_ppu().brightness);
+    println!("║   ⚡ NMI Enabled: {:31} ║", system.get_ppu().nmi_enabled);
+    println!("╠═══════════════════════════════════════════════════╣");
     
-    // Análise de progresso
-    if system.cpu.pc >= 0x8000 && system.cpu.pc <= 0x8048 {
-        let y_reg = system.cpu.y;
-        if y_reg <= 1021 {
-            let progress = ((1021 - y_reg as i32) as f32 / 1021.0) * 100.0;
-            println!("\n📊 Progresso do clear WRAM: {:.1}%", progress);
-            println!("   Bytes limpos: ~{}", 1021 - y_reg);
-            println!("   Bytes restantes: ~{}", y_reg);
-        }
-    }
-    
-    if system.get_ppu().brightness == 0 {
-        println!("\n⚠️  Brightness = 0 (tela escura)");
-        println!("   A ROM ainda não ligou a tela.");
-    }
-    
-    if !system.get_ppu().nmi_enabled {
-        println!("\n⚠️  NMI desabilitado");
-        println!("   O jogo ainda não está no loop principal.");
-    }
-    
-    // Estatísticas de timing
+    // Análise de timing
     let total_ppu_cycles = system.cpu.cycles * 4;
-    let expected_scanlines = total_ppu_cycles / 341;
-    println!("\nTiming:");
-    println!("  - Total PPU cycles: ~{}", total_ppu_cycles);
-    println!("  - Scanlines esperadas: ~{}", expected_scanlines);
-    println!("  - Frames esperados: ~{}", expected_scanlines / 262);
+    let expected_frames = total_ppu_cycles / (341 * 262);
+    println!("║ 📈 Timing:                                        ║");
+    println!("║   • PPU cycles: ~{:31} ║", total_ppu_cycles);
+    println!("║   • Frames esperados: ~{:25} ║", expected_frames);
     
-    println!("\n=== ANÁLISE FINAL ===");
-    if system.cpu.pc == brk_vector.into() {
-        println!("✅ BRK tratado corretamente (saltou para BRK handler)");
-    } else if system.cpu.pc > 0x8048 {
-        println!("✅ Programa passou da inicialização da WRAM");
-    } else {
-        println!("⚠️  Programa ainda na inicialização");
+    // Status
+    if system.get_ppu().brightness == 0 {
+        println!("║   ⚠️  Tela desligada (brightness = 0)            ║");
     }
+    if !system.get_ppu().nmi_enabled {
+        println!("║   ⚠️  NMI desabilitado (não está no loop)        ║");
+    }
+    
+    println!("╚═══════════════════════════════════════════════════╝\n");
 }

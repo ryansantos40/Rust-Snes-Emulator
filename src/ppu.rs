@@ -1,5 +1,5 @@
 use crate::memory::Memory;
-use crate::ppu_registers::*;
+use crate::ppu_registers as ppu_reg;
 
 #[derive(Debug, Clone, Copy)]
 pub enum VideoMode {
@@ -14,7 +14,6 @@ pub enum VideoMode {
 }
 
 pub struct Ppu {
-    //Timing
     pub scanline: u16,
     pub cycle: u16,
     pub frame_complete: bool,
@@ -274,7 +273,7 @@ impl Ppu {
             let x_pos = (tile_x_screen * 8 + scroll_x) & 0x1FF;
             let tile_x = (x_pos / 8) % tilemap_width;
 
-            let tile_info = self.get_bg_tile_index(memory, bg_layer, tile_x, tile_y);
+            let tile_info = self.get_bg_tile_info(memory, bg_layer, tile_x, tile_y);
             let tile_number = tile_info & 0x03FF;
             let palette = ((tile_info >> 10) & 0x07) as u8;
             let tile_priority = ((tile_info >> 13) & 0x01) as u8;
@@ -322,7 +321,7 @@ impl Ppu {
             let x_pos = (tile_x_screen * 8 + scroll_x) & 0x1FF;
             let tile_x = (x_pos / 8) % tilemap_width;
 
-            let tile_info = self.get_bg_tile_index(memory, bg_layer, tile_x, tile_y);
+            let tile_info = self.get_bg_tile_info(memory, bg_layer, tile_x, tile_y);
             let tile_number = tile_info & 0x03FF;
             let palette = ((tile_info >> 10) & 0x07) as u8;
             let tile_priority = ((tile_info >> 13) & 0x01) as u8;
@@ -372,7 +371,7 @@ impl Ppu {
             let x_pos = (tile_x_screen * 8 + scroll_x) & 0x1FF;
             let tile_x = (x_pos / 8) % tilemap_width;
 
-            let tile_info = self.get_bg_tile_index(memory, bg_layer, tile_x, tile_y);
+            let tile_info = self.get_bg_tile_info(memory, bg_layer, tile_x, tile_y);
             let tile_number = tile_info & 0x03FF;
             let palette = ((tile_info >> 10) & 0x07) as u8;
             let tile_priority = ((tile_info >> 13) & 0x01) as u8;
@@ -384,7 +383,7 @@ impl Ppu {
             }
 
             let actual_pixel_y = if flip_y { 7 - pixel_y } else { pixel_y };
-            let tile_data = self.get_tile_data(memory, tile_number, actual_pixel_y);
+            let tile_data = self.get_tile_data_2bpp(memory, bg_layer, tile_number, actual_pixel_y);
 
             for pixel_x in 0..8 {
                 let screen_x = ((x_pos + pixel_x) & 0x1FF) as usize;
@@ -409,7 +408,6 @@ impl Ppu {
 
     fn get_bg_tile_info(&self, memory: &Memory, bg_layer: usize, tile_x: u16, tile_y: u16) -> u16 {
         let tilemap_addr = self.bg_tilemap_addr[bg_layer] as usize;
-        let tilemap_width = if self.bg_size[bg_layer] { 64 } else { 32 };
 
         let block_x = tile_x / 32;
         let block_y = tile_y / 32;
@@ -509,43 +507,6 @@ impl Ppu {
         (r_adjusted << 16) | (g_adjusted << 8) | b_adjusted
     }
 
-    fn get_bg_tile_index(&self, memory: &Memory, bg_layer: usize, tile_x: u16, tile_y: u16) -> u16 {
-        let tilemap_addr = self.bg_tilemap_addr[bg_layer] as usize;
-        let tile_addr = tilemap_addr + ((tile_y * 32 + tile_x) * 2) as usize;
-
-        if tile_addr + 1 < memory.vram.len() {
-            let low = memory.vram[tile_addr] as u16;
-            let high = memory.vram[tile_addr + 1] as u16;
-            (high << 8) | low
-        } else {
-            0
-        }
-    }
-
-    fn get_tile_data(&self, memory: &Memory, tile_index: u16, pixel_row: u16) -> u32 {
-        let tile_addr = (tile_index * 32 + pixel_row * 4) as usize;
-
-        if tile_addr + 3 < memory.vram.len() {
-            let plane0 = memory.vram[tile_addr] as u32;
-            let plane1 = memory.vram[tile_addr + 1] as u32;
-            let plane2 = memory.vram[tile_addr + 2] as u32;
-            let plane3 = memory.vram[tile_addr + 3] as u32;
-
-            let mut pixel_data = 0;
-            for bit in 0..8 {
-                let color = ((plane0 >> bit) & 1) |
-                            ((plane1 >> bit) & 1) << 1 |
-                            ((plane2 >> bit) & 1) << 2 |
-                            ((plane3 >> bit) & 1) << 3;
-                pixel_data |= color << (bit * 4);      
-            }
-
-            pixel_data
-        } else {
-            0
-        }
-    }
-
     fn render_sprites(&mut self, memory: &Memory, priority_buffer: &mut [u8; 256]) {
         for sprite in 0..128 {
             let oam_addr = sprite * 4;
@@ -556,22 +517,38 @@ impl Ppu {
                 let tile = memory.oam[oam_addr + 2] as u16;
                 let attr = memory.oam[oam_addr + 3];
 
-                let sprite_priority = ((attr >> 4) & 0x03) +2;
+                let sprite_priority = (attr >> 4) & 0x03;
+                let palette_num = (attr >> 1) & 0x07;
+
+                let flip_x = (attr & 0x40) != 0;
+                let flip_y = (attr & 0x80) != 0;
 
                 if y <= self.scanline && self.scanline < y + 8 {
                     let sprite_y = self.scanline - y;
-                    let sprite_data = self.get_sprite_data(memory, tile, sprite_y);
+                    let actual_sprite_y = if flip_y { 7 - sprite_y } else { sprite_y };
+                    let sprite_data = self.get_sprite_data(memory, tile, actual_sprite_y);
 
                     for pixel_x in 0..8 {
                         let screen_x = (x + pixel_x) as usize;
 
                         if screen_x < 256 {
-                            let color_index = (sprite_data >> (pixel_x * 4)) & 0x0F;
+                            let actual_pixel_x = if flip_x { 7 - pixel_x } else { pixel_x };
+                            let color_index = ((sprite_data >> (actual_pixel_x * 4)) & 0x0F) as u8;
+
                             if color_index != 0 {
+                                let effective_priority = match sprite_priority {
+                                    3 => 4,
+                                    2 => 2,
+                                    1 => 1,
+                                    0 => 0,
+                                    _ => 0,
+                                };
+
                                 let current_priority = priority_buffer[screen_x];
-                                if sprite_priority >= current_priority {
-                                    self.line_buffer[screen_x] = color_index as u8 + 16;
-                                    priority_buffer[screen_x] = sprite_priority;
+                                if effective_priority >= current_priority {
+                                    let cgram_index = 128 + (palette_num * 16) + color_index;
+                                    self.line_buffer[screen_x] = cgram_index;
+                                    priority_buffer[screen_x] = effective_priority;
                                 }
                             }
                         }
@@ -629,18 +606,18 @@ impl Ppu {
 
     pub fn write_register(&mut self, addr: u16, value: u8) {
         match addr {
-            INIDISP => {
+            ppu_reg::INIDISP => {
                 self.brightness = value & 0x0F;
                 self.forced_blank = (value & 0x80) != 0;
                 self.inidisp = value;
             }
 
-            OBSEL => {
+            ppu_reg::OBSEL => {
                 self.sprite_size = value & 0x07;
                 self.obsel = value;
             }
 
-            BGMODE => {
+            ppu_reg::BGMODE => {
                 self.video_mode = match value & 0x07 {
                     0 => VideoMode::Mode0,
                     1 => VideoMode::Mode1,
@@ -660,77 +637,77 @@ impl Ppu {
                 self.bg_mode_reg = value;
             }
 
-            MOSAIC => {
+            ppu_reg::MOSAIC => {
                 self.mosaic = value;
             }
 
-            BG1SC => {
+            ppu_reg::BG1SC => {
                 self.bg_tilemap_addr[0] = ((value as u16) & 0xFC) << 8;
             }
 
-            BG2SC => {
+            ppu_reg::BG2SC => {
                 self.bg_tilemap_addr[1] = ((value as u16) & 0xFC) << 8;
             }
 
-            BG3SC => {
+            ppu_reg::BG3SC => {
                 self.bg_tilemap_addr[2] = ((value as u16) & 0xFC) << 8;
             }
 
-            BG4SC => {
+            ppu_reg::BG4SC => {
                 self.bg_tilemap_addr[3] = ((value as u16) & 0xFC) << 8;
             }
 
-            BG12NBA => {
+            ppu_reg::BG12NBA => {
                 self.bg_char_addr[0] = ((value & 0x0F) as u16) << 12;
                 self.bg_char_addr[1] = ((value & 0xF0) as u16) << 8;
             }
 
-            BG34NBA => {
+            ppu_reg::BG34NBA => {
                 self.bg_char_addr[2] = ((value & 0x0F) as u16) << 12;
                 self.bg_char_addr[3] = ((value & 0xF0) as u16) << 8;
             }
 
-            M7SEL => {
+            ppu_reg::M7SEL => {
                 self.mode7_settings = value;
             }
 
-            W12SEL => {
+            ppu_reg::W12SEL => {
                 self.window_settings[0] = value;
             }
 
-            W34SEL => {
+            ppu_reg::W34SEL => {
                 self.window_settings[1] = value;
             }
 
-            WOBJSEL => {
+            ppu_reg::WOBJSEL => {
                 self.window_settings[2] = value;
             }
 
-            WH0 => {
+            ppu_reg::WH0 => {
                 self.window_positions[0] = value;
             }
 
-            WH1 => {
+            ppu_reg::WH1 => {
                 self.window_positions[1] = value;
             }
 
-            WH2 => {
+            ppu_reg::WH2 => {
                 self.window_positions[2] = value;
             }
 
-            WH3 => {
+            ppu_reg::WH3 => {
                 self.window_positions[3] = value;
             }
 
-            WBGLOG => {
+            ppu_reg::WBGLOG => {
                 self.window_logic[0] = value;
             }
 
-            WOBJLOG => {
+            ppu_reg::WOBJLOG => {
                 self.window_logic[1] = value;
             }
 
-            TM => {
+            ppu_reg::TM => {
                 self.bg_enabled[0] = (value & 0x01) != 0;
                 self.bg_enabled[1] = (value & 0x02) != 0;
                 self.bg_enabled[2] = (value & 0x04) != 0;
@@ -739,35 +716,35 @@ impl Ppu {
                 self.main_screen_enabled = value;
             }
 
-            TS => {
+            ppu_reg::TS => {
                 self.sub_screen_enabled = value;
             }
 
-            TMW => {
+            ppu_reg::TMW => {
                 self.main_window_mask = value;
             }
 
-            TSW => {
+            ppu_reg::TSW => {
                 self.sub_window_mask = value;
             }
 
-            CGWSEL => {
+            ppu_reg::CGWSEL => {
                 self.color_math_control_a = value;
             }
 
-            CGADSUB => {
+            ppu_reg::CGADSUB => {
                 self.color_math_control_b = value;
             }
 
-            COLDATA => {
+            ppu_reg::COLDATA => {
                 self.fixed_color_data = value;
             }
 
-            SETINI => {
+            ppu_reg::SETINI => {
                 self.screen_mode = value;
             }
 
-            VMAIN => {
+            ppu_reg::VMAIN => {
                 self.vmain = value;
                 self.vram_increment = match value & 0x03 {
                     0 => 1,
@@ -778,16 +755,12 @@ impl Ppu {
                 };
             }
 
-            VMADDL => {
+            ppu_reg::VMADDL => {
                 self.vram_addr = (self.vram_addr & 0xFF00) | (value as u16);
             }
 
-            VMADDH => {
+            ppu_reg::VMADDH => {
                 self.vram_addr = (self.vram_addr & 0x00FF) | ((value as u16) << 8);
-            }
-
-            CGADD => {
-                self.cgram_addr = (value as u16) & 0x1FF;
             }
 
             _ => {}
@@ -797,49 +770,29 @@ impl Ppu {
     pub fn read_register(&mut self, addr: u16) -> u8 {
         match addr {
 
-            SLHV => {
+            ppu_reg::SLHV => {
                 0 //placeholder
             }
 
-            OPHCT => {
+            ppu_reg::OPHCT => {
                 (self.cycle & 0xFF) as u8
             }
 
-            OPVCT => {
+            ppu_reg::OPVCT => {
                 (self.scanline & 0xFF) as u8
             }
 
-            STAT77 => {
+            ppu_reg::STAT77 => {
                 let mut status = 0x01;
                 if self.vblank { status |= 0x80; }
                 if self.hblank { status |= 0x40; }
                 status
             }
 
-            STAT78 => {
+            ppu_reg::STAT78 => {
                 let mut status = 0x03;
                 if self.nmi_flag { status |= 0x80; }
                 self.nmi_flag = false;
-                status
-            }
-
-            0x4210 => {
-                let mut value = 0x02;
-
-                if self.nmi_enabled { value |= 0x80; }
-
-                self.nmi_flag = false;
-
-                value
-            }
-
-            0x4212 => {
-                let mut status = 0;
-
-                if self.vblank { status |= 0x80; }
-                if self.hblank { status |= 0x40; }
-
-
                 status
             }
 

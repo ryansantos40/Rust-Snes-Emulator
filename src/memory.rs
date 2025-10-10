@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::cell::RefCell;
 use crate::ppu::Ppu;
-use crate::ppu_registers::*;
-use crate::system_registers::*;
+use crate::ppu_registers as ppu_reg;
+use crate::system_registers as sys_reg;
 
 pub struct Memory {
     pub wram: [u8; 0x20000], // 128KB WRAM
@@ -273,11 +273,11 @@ impl Memory{
         let mut ppu = self.ppu.borrow_mut();
 
         match addr {
-            OPHCT | OPVCT | STAT77 | STAT78 | 0x4210 | 0x4211 |0x4212 => {
+            ppu_reg::OPHCT | ppu_reg::OPVCT | ppu_reg::STAT77 | ppu_reg::STAT78 | 0x4210 | 0x4211 |0x4212 => {
                 ppu.read_register(addr)
             } 
 
-            OAMDATAREAD => {
+            ppu_reg::OAMDATAREAD => {
                 let oam_addr = ppu.oam_addr;
                 if (oam_addr as usize) < self.oam.len() {
                     let value = self.oam[oam_addr as usize];
@@ -288,7 +288,7 @@ impl Memory{
                 }
             }
 
-            VMDATALREAD => {
+            ppu_reg::VMDATALREAD => {
                 let value = (ppu.vram_read_buffer & 0xFF) as u8;
 
                 if (ppu.vmain & 0x80) == 0 {
@@ -306,7 +306,7 @@ impl Memory{
                 value
             }
 
-            VMDATAHREAD => {
+            ppu_reg::VMDATAHREAD => {
                 let value = (ppu.vram_read_buffer >> 8) as u8;
                 
                 if (ppu.vmain & 0x80) != 0 {
@@ -323,7 +323,7 @@ impl Memory{
                 value
             }
 
-            CGDATAREAD => {
+            ppu_reg::CGDATAREAD => {
                 let cgram_addr = ppu.cgram_addr as usize;
                 if cgram_addr < self.cgram.len() {
                     let value = self.cgram[cgram_addr as usize];
@@ -334,7 +334,7 @@ impl Memory{
                 }
             }
 
-           MPYL | MPYM | MPYH => {
+            ppu_reg::MPYL | ppu_reg::MPYM | ppu_reg::MPYH => {
                 ppu.open_bus
             }
 
@@ -368,30 +368,30 @@ impl Memory{
 
         match addr {
 
-            INIDISP | OBSEL | BGMODE | MOSAIC | 
-            BG1SC | BG2SC | BG3SC | BG4SC |
-            BG12NBA | BG34NBA |
-            M7SEL | M7A | M7B | M7C | M7D | M7X | M7Y |
-            W12SEL | W34SEL | WOBJSEL | 
-            WH0 | WH1 | WH2 | WH3 |
-            WBGLOG | WOBJLOG |
-            TM | TS | TMW | TSW |
-            CGWSEL | CGADSUB | COLDATA | SETINI |
-            VMAIN | CGADD => {
+            ppu_reg::INIDISP | ppu_reg::OBSEL | ppu_reg::BGMODE | ppu_reg::MOSAIC | 
+            ppu_reg::BG1SC | ppu_reg::BG2SC | ppu_reg::BG3SC | ppu_reg::BG4SC |
+            ppu_reg::BG12NBA | ppu_reg::BG34NBA |
+            ppu_reg::M7SEL | ppu_reg::M7A | ppu_reg::M7B | ppu_reg::M7C | ppu_reg::M7D | ppu_reg::M7X | ppu_reg::M7Y |
+            ppu_reg::W12SEL | ppu_reg::W34SEL | ppu_reg::WOBJSEL | 
+            ppu_reg::WH0 | ppu_reg::WH1 | ppu_reg::WH2 | ppu_reg::WH3 |
+            ppu_reg::WBGLOG | ppu_reg::WOBJLOG |
+            ppu_reg::TM | ppu_reg::TS | ppu_reg::TMW | ppu_reg::TSW |
+            ppu_reg::CGWSEL | ppu_reg::CGADSUB | ppu_reg::COLDATA | ppu_reg::SETINI |
+            ppu_reg::VMAIN => {
                 ppu.write_register(addr, value);
             }
 
-            VMADDL => {
+            ppu_reg::VMADDL => {
                 self.registers.insert(addr, value);
                 ppu.vram_addr = (ppu.vram_addr & 0xFF00) | (value as u16);
             }
 
-            VMADDH => {
+            ppu_reg::VMADDH => {
                 self.registers.insert(addr, value);
                 ppu.vram_addr = (ppu.vram_addr & 0x00FF) | ((value as u16) << 8);
             }
 
-            VMDATAL => {
+            ppu_reg::VMDATAL => {
                 let vram_addr = ppu.vram_addr;
                 let byte_addr = (vram_addr as usize) * 2;
 
@@ -404,7 +404,7 @@ impl Memory{
                 }
             }
 
-            VMDATAH => {
+            ppu_reg::VMDATAH => {
                 let vram_addr = ppu.vram_addr;
                 let byte_addr = (vram_addr as usize) * 2;
 
@@ -417,17 +417,17 @@ impl Memory{
                 }
             }
 
-            OAMADDL => {
+            ppu_reg::OAMADDL => {
                 self.registers.insert(0x2102, value);
                 ppu.oam_addr = (ppu.oam_addr & 0xFF00) | (value as u16);
             }
 
-            OAMADDH => {
+            ppu_reg::OAMADDH => {
                 self.registers.insert(0x2103, value);
                 ppu.oam_addr = (ppu.oam_addr & 0x00FF) | ((value as u16) << 8);
             }
 
-            OAMDATA => {
+            ppu_reg::OAMDATA => {
                 let oam_addr = ppu.oam_addr;
                 if (oam_addr as usize) < self.oam.len() {
                     self.oam[oam_addr as usize] = value;
@@ -435,11 +435,11 @@ impl Memory{
                 ppu.oam_addr = (ppu.oam_addr + 1) & 0x21F;
             }
 
-            CGADD => {
-                ppu.cgram_addr = value as u16;
+            ppu_reg::CGADD => {
+                ppu.cgram_addr = (value as u16) & 0x1FF;
             }
 
-            CGDATA => {
+            ppu_reg::CGDATA => {
                 let cgram_addr = ppu.cgram_addr;
                 if (cgram_addr as usize) < self.cgram.len() {
                     self.cgram[cgram_addr as usize] = value;
@@ -447,35 +447,35 @@ impl Memory{
                 ppu.cgram_addr = ppu.cgram_addr.wrapping_add(1);
             }
 
-            BG1HOFS => {
+            ppu_reg::BG1HOFS => {
                 ppu.bg_hscroll[0] = (ppu.bg_hscroll[0] & 0xFF00) | (value as u16);
             }
 
-            BG1VOFS => {
+            ppu_reg::BG1VOFS => {
                 ppu.bg_vscroll[0] = (ppu.bg_vscroll[0] & 0xFF00) | (value as u16);
             }
 
-            BG2HOFS => {
+            ppu_reg::BG2HOFS => {
                 ppu.bg_hscroll[1] = (ppu.bg_hscroll[1] & 0xFF00) | (value as u16);
             }
 
-            BG2VOFS => {
+            ppu_reg::BG2VOFS => {
                 ppu.bg_vscroll[1] = (ppu.bg_vscroll[1] & 0xFF00) | (value as u16);
             }
 
-            BG3HOFS => {
+            ppu_reg::BG3HOFS => {
                 ppu.bg_hscroll[2] = (ppu.bg_hscroll[2] & 0xFF00) | (value as u16);
             }
 
-            BG3VOFS => {
+            ppu_reg::BG3VOFS => {
                 ppu.bg_vscroll[2] = (ppu.bg_vscroll[2] & 0xFF00) | (value as u16);
             }
 
-            BG4HOFS => {
+            ppu_reg::BG4HOFS => {
                 ppu.bg_hscroll[3] = (ppu.bg_hscroll[3] & 0xFF00) | (value as u16);
             }
 
-            BG4VOFS => {
+            ppu_reg::BG4VOFS => {
                 ppu.bg_vscroll[3] = (ppu.bg_vscroll[3] & 0xFF00) | (value as u16);
             }
 
@@ -543,24 +543,24 @@ impl Memory{
     // DMA/HDMA Registers ($4200-$44FF)
     fn read_dma_registers(&self, addr: u16) -> u8 {
         match addr {
-            RDNMI => {
-                let ppu = self.ppu.borrow();
+            sys_reg::RDNMI => {
+                let mut ppu = self.ppu.borrow_mut();
                 let mut value = 0x02;
-                if ppu.nmi_occurred {
+                if ppu.nmi_flag {
                     value |= 0x80;
                 }
-
+                ppu.nmi_flag = false;
                 value
             }
 
-            TIMEUP => {
+            sys_reg::TIMEUP => {
                 0 // Placeholder
             }
 
-            HVBJOY => {
+            sys_reg::HVBJOY => {
                 let ppu = self.ppu.borrow();
                 let mut status = 0x00;
-                if ppu.vblank = {status |= 0x80; }
+                if ppu.vblank {status |= 0x80; }
                 if ppu.hblank {status |= 0x40; }
 
                 status
@@ -572,18 +572,18 @@ impl Memory{
 
     fn write_dma_registers(&mut self, addr: u16, value: u8) {
         match addr {
-            NMITIMEN => {
+            sys_reg::NMITIMEN => {
                 let mut ppu = self.ppu.borrow_mut();
                 ppu.nmi_enabled = (value & 0x80) != 0;
                 self.registers.insert(addr, value);
             }
 
-            WRMPYA => {
+            sys_reg::WRMPYA => {
                 self.registers.insert(addr, value);
             }
 
-            WRMPYB => {
-                let a = self.registers.get(&WRMPYA).copied().unwrap_or(0) as u16;
+            sys_reg::WRMPYB => {
+                let a = self.registers.get(&sys_reg::WRMPYA).copied().unwrap_or(0) as u16;
                 let b = value as u16;
                 let result = a.wrapping_mul(b);
 
@@ -592,17 +592,17 @@ impl Memory{
                 self.registers.insert(addr, value);
             }
 
-            WRDIVL => {
+            sys_reg::WRDIVL => {
                 self.registers.insert(addr, value);
             }
 
-            WRDIVH => {
+            sys_reg::WRDIVH => {
                 self.registers.insert(addr, value);
             }
 
-            WRDIVB => {
-                let dividend = (self.registers.get(&WRDIVH).copied().unwrap_or(0) as u16) << 8 |
-                               (self.registers.get(&WRDIVL).copied().unwrap_or(0) as u16);
+            sys_reg::WRDIVB => {
+                let dividend = (self.registers.get(&sys_reg::WRDIVH).copied().unwrap_or(0) as u16) << 8 |
+                               (self.registers.get(&sys_reg::WRDIVL).copied().unwrap_or(0) as u16);
                 let divisor = value as u16;
 
                 let (quotient, remainder) = if divisor != 0 {
@@ -618,31 +618,31 @@ impl Memory{
                 self.registers.insert(addr, value);
             }
 
-            HTIMEL => {
+            sys_reg::HTIMEL => {
                 self.registers.insert(addr, value);
             }
 
-            HTIMEH => {
+            sys_reg::HTIMEH => {
                 self.registers.insert(addr, value);
             }
 
-            VTIMEL => {
+            sys_reg::VTIMEL => {
                 self.registers.insert(addr, value);
             }
 
-            VTIMEH => {
+            sys_reg::VTIMEH => {
                 self.registers.insert(addr, value);
             }
 
-            MDMAEN => {
+            sys_reg::MDMAEN => {
                 self.registers.insert(addr, value);
             }
 
-            HDMAEN => {
+            sys_reg::HDMAEN => {
                 self.registers.insert(addr, value);
             }
 
-            MEMSEL => {
+            sys_reg::MEMSEL => {
                 self.registers.insert(addr, value);
             }
 
